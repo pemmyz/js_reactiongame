@@ -43,4 +43,4 @@ This game is a reimagination of a project I did in a JavaScript programming cour
 1. Clone or download the repo:
 
 ```bash
-git clone https://github.com/yourusername/browser-reaction-game.git
+git clone https://github.com/pemmyz/js_reactiongame.git
