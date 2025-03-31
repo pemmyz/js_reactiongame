@@ -48,20 +48,21 @@
     let unpausedTime = 0.0;
     let lastFrameTime = getTime();
 
-    // New variable for follow mode and mouse tracking.
-    let followMode = false; // When true, the game will check the mouse proximity.
+    // Follow mode variables
+    let followMode = false; // Initially off; will automatically turn on when currentStreak reaches threshold.
+    let followModeThreshold = Math.floor(Math.random() * 16) + 10;  // Random integer between 10 and 25.
     let mousePos = { x: 0, y: 0 };
 
     // Set up Canvas
     const canvas = document.getElementById("gameCanvas");
     const ctx = canvas.getContext("2d");
 
-    // Helper function: get current time in seconds
+    // Helper: get current time in seconds
     function getTime() {
       return performance.now() / 1000;
     }
 
-    // Reset game state and stats (always starts in classic mode)
+    // Reset game state and stats.
     function resetGame() {
       mode = "classic";
       squares = [];
@@ -76,9 +77,13 @@
       unpausedTime = 0.0;
       lastFrameTime = getTime();
       paused = false;
+      // Reset follow mode state and choose a new random threshold between 10 and 25.
+      followMode = false;
+      followModeThreshold = Math.floor(Math.random() * 16) + 10;
+      console.log("New follow mode threshold: " + followModeThreshold);
     }
 
-    // Create a new square at a random location and record its creation time
+    // Create a new square at a random location and record its creation time.
     function createSquare() {
       const x = Math.random() * (WIDTH - SQUARE_SIZE);
       const y = Math.random() * (HEIGHT - SQUARE_SIZE);
@@ -87,7 +92,7 @@
       return { x, y, size: SQUARE_SIZE, createdAt };
     }
 
-    // Remove squares that have expired; count each as an expired miss and reset streak
+    // Remove squares that have expired (time-out).
     function removeExpiredSquares() {
       const currentTime = getTime();
       let expired = false;
@@ -104,7 +109,7 @@
       }
     }
 
-    // Draw all active squares
+    // Draw all active squares.
     function drawSquares() {
       ctx.fillStyle = RED;
       squares.forEach(sq => {
@@ -112,7 +117,7 @@
       });
     }
 
-    // Updated handleSquareClick function returns true if a square was hit.
+    // Handle square click; update stats if a square was hit.
     function handleSquareClick(pos) {
       for (let i = 0; i < squares.length; i++) {
         const sq = squares[i];
@@ -132,7 +137,7 @@
       return false;  // No square was hit.
     }
 
-    // Compute reaction time statistics: fastest, slowest, average, median, standard deviation, 25th and 75th percentiles.
+    // Compute reaction time statistics.
     function computeReactionStats() {
       if (reactionTimes.length > 0) {
         const fastest = Math.min(...reactionTimes);
@@ -159,7 +164,7 @@
       }
     }
 
-    // Draw game statistics on the canvas, including key hints and current statuses.
+    // Draw game statistics and instructions.
     function drawStats() {
       const elapsedTime = Math.floor(getTime() - startTime);
       const currentTimeDisplay = paused ? lastFrameTime : getTime();
@@ -167,18 +172,16 @@
       const totalResponses = squaresClicked + squaresExpired + misclicks;
       const accuracy = totalResponses > 0 ? (squaresClicked / totalResponses * 100) : 0;
       
-      // Set text color based on dark mode
       ctx.fillStyle = darkMode ? WHITE : BLACK;
       ctx.font = "16px Arial";
       let y = 20;
       const lineHeight = 20;
       const lines = [];
       
-      // Game status and key hints
       lines.push(`Mode: ${mode.toUpperCase()} (Press N to toggle mode)`);
       lines.push(`Paused: ${paused} (Press P to toggle pause)`);
       lines.push(`Dark Mode: ${darkMode ? "ON" : "OFF"} (Press B to toggle dark mode)`);
-      lines.push(`Follow Mode: ${followMode ? "ON" : "OFF"} (Press O to toggle)`);
+      lines.push(`Follow Mode: ${followMode ? "ON" : "OFF"} (Activates at streak ${followModeThreshold})`);
       lines.push(`Time Played: ${elapsedTime}s`);
       lines.push(`Total Game Time: ${totalGameTime.toFixed(2)}s | Unpaused Time: ${unpausedTime.toFixed(2)}s`);
       lines.push(`Squares Clicked: ${squaresClicked} | Expired: ${squaresExpired} | Misclicks: ${misclicks} | Total Prompts: ${totalPrompts}`);
@@ -192,8 +195,7 @@
         lines.push(`Std Dev: ${stats.stdev.toFixed(2)}s | 25th: ${stats.p25.toFixed(2)}s | 75th: ${stats.p75.toFixed(2)}s`);
       }
       
-      // Additional key hints line
-      lines.push("Key Hints: N - Toggle Mode, P - Pause, R - Reset, B - Toggle Dark Mode, O - Toggle Follow Mode, Esc - Exit");
+      lines.push("Key Hints: N - Toggle Mode, P - Pause, R - Reset, B - Toggle Dark Mode, Esc - Exit");
       
       lines.forEach(line => {
         ctx.fillText(line, 10, y);
@@ -201,8 +203,7 @@
       });
     }
 
-    // Helper: compute the distance from a point to a rectangle.
-    // This calculates the shortest distance from (pt.x, pt.y) to the edges of rect.
+    // Helper: compute distance from a point to a rectangle.
     function distanceToRect(pt, rect) {
       let dx = 0;
       if (pt.x < rect.x) {
@@ -219,7 +220,7 @@
       return Math.sqrt(dx * dx + dy * dy);
     }
 
-    // Main game loop using requestAnimationFrame
+    // Main game loop.
     function gameLoop() {
       if (!running) return;
       const currentFrameTime = getTime();
@@ -228,7 +229,7 @@
 
       if (!paused) {
         unpausedTime += dt;
-        // Spawn squares based on the current mode
+        // Spawn squares based on the current mode.
         if (mode === "classic") {
           if (squares.length === 0) {
             squares.push(createSquare());
@@ -241,8 +242,14 @@
         removeExpiredSquares();
       }
 
-      // In follow mode, if the mouse cursor is within 50 pixels of a square,
-      // remove that square, count it as expired, and reset streak.
+      // Automatic follow mode toggle: when current streak reaches (or exceeds) the threshold, turn follow mode on.
+      if (!followMode && currentStreak >= followModeThreshold) {
+        followMode = true;
+        console.log("Follow mode activated at streak: " + currentStreak);
+      }
+
+      // In follow mode, if the mouse is within 50 pixels of a square,
+      // remove that square, count it as expired, and reset the streak.
       if (followMode && mousePos) {
         for (let i = squares.length - 1; i >= 0; i--) {
           const sq = squares[i];
@@ -254,15 +261,15 @@
         }
       }
 
-      // Clear the canvas based on dark mode
+      // Clear the canvas.
       ctx.fillStyle = darkMode ? BLACK : WHITE;
       ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
-      // Draw game elements
+      // Draw game elements.
       drawSquares();
       drawStats();
 
-      // Display pause message if game is paused
+      // Display pause message if game is paused.
       if (paused) {
         ctx.fillStyle = darkMode ? WHITE : BLACK;
         ctx.font = "30px Arial";
@@ -274,7 +281,7 @@
       requestAnimationFrame(gameLoop);
     }
 
-    // Event Listener: Mouse Click now checks for misclicks.
+    // Mouse click event: Check if a square is hit.
     canvas.addEventListener("mousedown", function(event) {
       if (!paused) {
         const rect = canvas.getBoundingClientRect();
@@ -282,28 +289,26 @@
           x: event.clientX - rect.left,
           y: event.clientY - rect.top
         };
-        // Check if the click hit a square.
         const hit = handleSquareClick(pos);
         if (!hit) {
-          // Record misclick as a separate miss and reset streak.
           misclicks++;
           currentStreak = 0;
         }
       }
     });
 
-    // Event Listener: Mouse movement to update the mouse position.
+    // Update mouse position.
     canvas.addEventListener("mousemove", function(event) {
       const rect = canvas.getBoundingClientRect();
       mousePos.x = event.clientX - rect.left;
       mousePos.y = event.clientY - rect.top;
     });
 
-    // Keyboard events for mode toggle, pause, reset, dark mode toggle, follow mode toggle, and exit.
+    // Keyboard events.
     document.addEventListener("keydown", function(event) {
       if (event.key === "n" || event.key === "N") {
         mode = (mode === "hyper") ? "classic" : "hyper";
-        squares = [];  // Clear current squares on mode change.
+        squares = [];
         currentStreak = 0;
       } else if (event.key === "p" || event.key === "P") {
         paused = !paused;
@@ -314,14 +319,12 @@
         resetGame();
       } else if (event.key === "b" || event.key === "B") {
         darkMode = !darkMode;
-      } else if (event.key === "o" || event.key === "O") {
-        followMode = !followMode;
       } else if (event.key === "Escape") {
         running = false;
       }
     });
 
-    // Start the game loop
+    // Start the game loop.
     requestAnimationFrame(gameLoop);
   </script>
 </body>
