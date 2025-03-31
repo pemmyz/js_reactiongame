@@ -38,7 +38,7 @@
     let darkMode = true; // Dark mode is now default
     let squares = [];
     let squaresClicked = 0;
-    let squaresExpired = 0; // Count of squares that timed out
+    let squaresExpired = 0; // Count of squares that timed out or expired via proximity
     let misclicks = 0;      // Count of clicks that did not hit a square
     let totalPrompts = 0;
     let reactionTimes = [];
@@ -176,9 +176,9 @@
       
       // Game status and key hints
       lines.push(`Mode: ${mode.toUpperCase()} (Press N to toggle mode)`);
-      lines.push(`Paused: ${paused} (Press O to toggle pause)`);  // Changed pause toggle to O
+      lines.push(`Paused: ${paused} (Press P to toggle pause)`);
       lines.push(`Dark Mode: ${darkMode ? "ON" : "OFF"} (Press B to toggle dark mode)`);
-      lines.push(`Follow Mode: ${followMode ? "ON" : "OFF"} (Press F to toggle)`);
+      lines.push(`Follow Mode: ${followMode ? "ON" : "OFF"} (Press O to toggle)`);
       lines.push(`Time Played: ${elapsedTime}s`);
       lines.push(`Total Game Time: ${totalGameTime.toFixed(2)}s | Unpaused Time: ${unpausedTime.toFixed(2)}s`);
       lines.push(`Squares Clicked: ${squaresClicked} | Expired: ${squaresExpired} | Misclicks: ${misclicks} | Total Prompts: ${totalPrompts}`);
@@ -192,8 +192,8 @@
         lines.push(`Std Dev: ${stats.stdev.toFixed(2)}s | 25th: ${stats.p25.toFixed(2)}s | 75th: ${stats.p75.toFixed(2)}s`);
       }
       
-      // Additional key hints line (note: pause is now toggled with O to free up P for follow mode if needed)
-      lines.push("Key Hints: N - Toggle Mode, O - Pause, R - Reset, B - Toggle Dark Mode, F - Toggle Follow Mode, Esc - Exit");
+      // Additional key hints line
+      lines.push("Key Hints: N - Toggle Mode, P - Pause, R - Reset, B - Toggle Dark Mode, O - Toggle Follow Mode, Esc - Exit");
       
       lines.forEach(line => {
         ctx.fillText(line, 10, y);
@@ -219,16 +219,6 @@
       return Math.sqrt(dx * dx + dy * dy);
     }
 
-    // Draw a small indicator for the player when follow mode is on.
-    function drawPlayer() {
-      if (mousePos) {
-        ctx.fillStyle = "#00FF00"; // green indicator
-        ctx.beginPath();
-        ctx.arc(mousePos.x, mousePos.y, 5, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-
     // Main game loop using requestAnimationFrame
     function gameLoop() {
       if (!running) return;
@@ -251,21 +241,15 @@
         removeExpiredSquares();
       }
 
-      // If follow mode is enabled, check if the mouse is within 10 pixels of any square.
+      // In follow mode, if the mouse cursor is within 20 pixels of a square,
+      // remove that square, count it as expired, reset streak.
       if (followMode && mousePos) {
-        // Loop backwards to safely remove elements.
         for (let i = squares.length - 1; i >= 0; i--) {
           const sq = squares[i];
-          if (distanceToRect(mousePos, sq) <= 10) {
-            // Process as a hit.
+          if (distanceToRect(mousePos, sq) <= 20) {
             squares.splice(i, 1);
-            squaresClicked++;
-            const reaction = getTime() - sq.createdAt;
-            reactionTimes.push(reaction);
-            currentStreak++;
-            if (currentStreak > longestStreak) {
-              longestStreak = currentStreak;
-            }
+            squaresExpired++;
+            currentStreak = 0;
           }
         }
       }
@@ -277,11 +261,6 @@
       // Draw game elements
       drawSquares();
       drawStats();
-      
-      // Draw player indicator if follow mode is on.
-      if (followMode) {
-        drawPlayer();
-      }
 
       // Display pause message if game is paused
       if (paused) {
@@ -320,14 +299,13 @@
       mousePos.y = event.clientY - rect.top;
     });
 
-    // Event Listener: Keyboard events for mode toggle, pause, reset, dark mode toggle, follow mode toggle, and exit.
+    // Keyboard events for mode toggle, pause, reset, dark mode toggle, follow mode toggle, and exit.
     document.addEventListener("keydown", function(event) {
       if (event.key === "n" || event.key === "N") {
         mode = (mode === "hyper") ? "classic" : "hyper";
         squares = [];  // Clear current squares on mode change.
         currentStreak = 0;
-      } else if (event.key === "o" || event.key === "O") {
-        // Reassign pause toggle to O to free up P if needed.
+      } else if (event.key === "p" || event.key === "P") {
         paused = !paused;
         if (!paused) {
           lastFrameTime = getTime();
@@ -335,10 +313,8 @@
       } else if (event.key === "r" || event.key === "R") {
         resetGame();
       } else if (event.key === "b" || event.key === "B") {
-        // Toggle dark mode
         darkMode = !darkMode;
-      } else if (event.key === "f" || event.key === "F") {
-        // Toggle follow mode (player follows the mouse cursor)
+      } else if (event.key === "o" || event.key === "O") {
         followMode = !followMode;
       } else if (event.key === "Escape") {
         running = false;
