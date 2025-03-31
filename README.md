@@ -41,9 +41,3 @@ This game is a reimagination of a project I did in a JavaScript programming cour
 - 🖱️ Mouse click handling
 - ⌨️ Keyboard controls
 
-## 🚀 Getting Started
-
-1. Clone or download the repo:
-
-```bash
-git clone https://github.com/pemmyz/js_reactiongame.git
