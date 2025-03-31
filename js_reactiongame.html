@@ -48,6 +48,10 @@
     let unpausedTime = 0.0;
     let lastFrameTime = getTime();
 
+    // New variable for follow mode and mouse tracking.
+    let followMode = false; // When true, the game will check the mouse proximity.
+    let mousePos = { x: 0, y: 0 };
+
     // Set up Canvas
     const canvas = document.getElementById("gameCanvas");
     const ctx = canvas.getContext("2d");
@@ -172,8 +176,9 @@
       
       // Game status and key hints
       lines.push(`Mode: ${mode.toUpperCase()} (Press N to toggle mode)`);
-      lines.push(`Paused: ${paused} (Press P to toggle pause)`);
+      lines.push(`Paused: ${paused} (Press O to toggle pause)`);  // Changed pause toggle to O
       lines.push(`Dark Mode: ${darkMode ? "ON" : "OFF"} (Press B to toggle dark mode)`);
+      lines.push(`Follow Mode: ${followMode ? "ON" : "OFF"} (Press F to toggle)`);
       lines.push(`Time Played: ${elapsedTime}s`);
       lines.push(`Total Game Time: ${totalGameTime.toFixed(2)}s | Unpaused Time: ${unpausedTime.toFixed(2)}s`);
       lines.push(`Squares Clicked: ${squaresClicked} | Expired: ${squaresExpired} | Misclicks: ${misclicks} | Total Prompts: ${totalPrompts}`);
@@ -187,13 +192,41 @@
         lines.push(`Std Dev: ${stats.stdev.toFixed(2)}s | 25th: ${stats.p25.toFixed(2)}s | 75th: ${stats.p75.toFixed(2)}s`);
       }
       
-      // Additional key hints line
-      lines.push("Key Hints: N - Toggle Mode, P - Pause, R - Reset, B - Toggle Dark Mode, Esc - Exit");
+      // Additional key hints line (note: pause is now toggled with O to free up P for follow mode if needed)
+      lines.push("Key Hints: N - Toggle Mode, O - Pause, R - Reset, B - Toggle Dark Mode, F - Toggle Follow Mode, Esc - Exit");
       
       lines.forEach(line => {
         ctx.fillText(line, 10, y);
         y += lineHeight;
       });
+    }
+
+    // Helper: compute the distance from a point to a rectangle.
+    // This calculates the shortest distance from (pt.x, pt.y) to the edges of rect.
+    function distanceToRect(pt, rect) {
+      let dx = 0;
+      if (pt.x < rect.x) {
+        dx = rect.x - pt.x;
+      } else if (pt.x > rect.x + rect.size) {
+        dx = pt.x - (rect.x + rect.size);
+      }
+      let dy = 0;
+      if (pt.y < rect.y) {
+        dy = rect.y - pt.y;
+      } else if (pt.y > rect.y + rect.size) {
+        dy = pt.y - (rect.y + rect.size);
+      }
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    // Draw a small indicator for the player when follow mode is on.
+    function drawPlayer() {
+      if (mousePos) {
+        ctx.fillStyle = "#00FF00"; // green indicator
+        ctx.beginPath();
+        ctx.arc(mousePos.x, mousePos.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
     // Main game loop using requestAnimationFrame
@@ -218,6 +251,25 @@
         removeExpiredSquares();
       }
 
+      // If follow mode is enabled, check if the mouse is within 10 pixels of any square.
+      if (followMode && mousePos) {
+        // Loop backwards to safely remove elements.
+        for (let i = squares.length - 1; i >= 0; i--) {
+          const sq = squares[i];
+          if (distanceToRect(mousePos, sq) <= 10) {
+            // Process as a hit.
+            squares.splice(i, 1);
+            squaresClicked++;
+            const reaction = getTime() - sq.createdAt;
+            reactionTimes.push(reaction);
+            currentStreak++;
+            if (currentStreak > longestStreak) {
+              longestStreak = currentStreak;
+            }
+          }
+        }
+      }
+
       // Clear the canvas based on dark mode
       ctx.fillStyle = darkMode ? BLACK : WHITE;
       ctx.fillRect(0, 0, WIDTH, HEIGHT);
@@ -225,6 +277,11 @@
       // Draw game elements
       drawSquares();
       drawStats();
+      
+      // Draw player indicator if follow mode is on.
+      if (followMode) {
+        drawPlayer();
+      }
 
       // Display pause message if game is paused
       if (paused) {
@@ -238,7 +295,7 @@
       requestAnimationFrame(gameLoop);
     }
 
-    // Updated Event Listener: Mouse Click now checks for misclicks.
+    // Event Listener: Mouse Click now checks for misclicks.
     canvas.addEventListener("mousedown", function(event) {
       if (!paused) {
         const rect = canvas.getBoundingClientRect();
@@ -256,13 +313,21 @@
       }
     });
 
-    // Event Listener: Keyboard events for mode toggle, pause, reset, dark mode toggle, and exit.
+    // Event Listener: Mouse movement to update the mouse position.
+    canvas.addEventListener("mousemove", function(event) {
+      const rect = canvas.getBoundingClientRect();
+      mousePos.x = event.clientX - rect.left;
+      mousePos.y = event.clientY - rect.top;
+    });
+
+    // Event Listener: Keyboard events for mode toggle, pause, reset, dark mode toggle, follow mode toggle, and exit.
     document.addEventListener("keydown", function(event) {
       if (event.key === "n" || event.key === "N") {
         mode = (mode === "hyper") ? "classic" : "hyper";
         squares = [];  // Clear current squares on mode change.
         currentStreak = 0;
-      } else if (event.key === "p" || event.key === "P") {
+      } else if (event.key === "o" || event.key === "O") {
+        // Reassign pause toggle to O to free up P if needed.
         paused = !paused;
         if (!paused) {
           lastFrameTime = getTime();
@@ -272,6 +337,9 @@
       } else if (event.key === "b" || event.key === "B") {
         // Toggle dark mode
         darkMode = !darkMode;
+      } else if (event.key === "f" || event.key === "F") {
+        // Toggle follow mode (player follows the mouse cursor)
+        followMode = !followMode;
       } else if (event.key === "Escape") {
         running = false;
       }
