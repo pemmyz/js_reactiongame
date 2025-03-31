@@ -5,7 +5,7 @@
 A fast-paced browser-based reaction time game built using HTML5 Canvas and vanilla JavaScript. Click on red squares as fast as you can before they disappear!
 This game is a reimagination of a project I did in a JavaScript programming course during my IT bachelor studies.
 
-## Play it now: https://pemmyz.github.io/js_reactiongame.html
+## Play it now: https://pemmyz.github.io/js_reactiongame/js_reactiongame.html
 
 ## 🎮 How to Play
 
