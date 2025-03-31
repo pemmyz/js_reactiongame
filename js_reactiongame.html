@@ -241,12 +241,12 @@
         removeExpiredSquares();
       }
 
-      // In follow mode, if the mouse cursor is within 20 pixels of a square,
-      // remove that square, count it as expired, reset streak.
+      // In follow mode, if the mouse cursor is within 50 pixels of a square,
+      // remove that square, count it as expired, and reset streak.
       if (followMode && mousePos) {
         for (let i = squares.length - 1; i >= 0; i--) {
           const sq = squares[i];
-          if (distanceToRect(mousePos, sq) <= 20) {
+          if (distanceToRect(mousePos, sq) <= 50) {
             squares.splice(i, 1);
             squaresExpired++;
             currentStreak = 0;
