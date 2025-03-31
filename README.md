@@ -24,6 +24,7 @@ This game is a reimagination of a project I did in a JavaScript programming cour
 | `N` | Toggle between Classic/Hyper |
 | `P` | Pause/Unpause                |
 | `R` | Reset the game               |
+| `B` | Toggle Dark Mode               |
 | `Esc` | Exit the game               |
 
 ### Modes
