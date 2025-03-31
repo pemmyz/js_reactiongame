@@ -38,7 +38,8 @@
     let darkMode = true; // Dark mode is now default
     let squares = [];
     let squaresClicked = 0;
-    let squaresMissed = 0;
+    let squaresExpired = 0; // Count of squares that timed out
+    let misclicks = 0;      // Count of clicks that did not hit a square
     let totalPrompts = 0;
     let reactionTimes = [];
     let currentStreak = 0;
@@ -61,7 +62,8 @@
       mode = "classic";
       squares = [];
       squaresClicked = 0;
-      squaresMissed = 0;
+      squaresExpired = 0;
+      misclicks = 0;
       totalPrompts = 0;
       reactionTimes = [];
       currentStreak = 0;
@@ -81,13 +83,13 @@
       return { x, y, size: SQUARE_SIZE, createdAt };
     }
 
-    // Remove squares that have expired; count each as a miss and reset streak
+    // Remove squares that have expired; count each as an expired miss and reset streak
     function removeExpiredSquares() {
       const currentTime = getTime();
       let expired = false;
       squares = squares.filter(sq => {
         if (currentTime - sq.createdAt > TIME_LIMIT) {
-          squaresMissed++;
+          squaresExpired++;  // Count timeout misses separately.
           expired = true;
           return false;
         }
@@ -106,7 +108,7 @@
       });
     }
 
-    // Handle click events on squares: remove square and update stats
+    // Updated handleSquareClick function returns true if a square was hit.
     function handleSquareClick(pos) {
       for (let i = 0; i < squares.length; i++) {
         const sq = squares[i];
@@ -120,9 +122,10 @@
           if (currentStreak > longestStreak) {
             longestStreak = currentStreak;
           }
-          break;
+          return true;  // A square was hit.
         }
       }
+      return false;  // No square was hit.
     }
 
     // Compute reaction time statistics: fastest, slowest, average, median, standard deviation, 25th and 75th percentiles.
@@ -157,9 +160,8 @@
       const elapsedTime = Math.floor(getTime() - startTime);
       const currentTimeDisplay = paused ? lastFrameTime : getTime();
       const totalGameTime = currentTimeDisplay - startTime;
-      const totalResponses = squaresClicked + squaresMissed;
+      const totalResponses = squaresClicked + squaresExpired + misclicks;
       const accuracy = totalResponses > 0 ? (squaresClicked / totalResponses * 100) : 0;
-      const promptRatio = totalPrompts > 0 ? (totalResponses / totalPrompts * 100) : 0;
       
       // Set text color based on dark mode
       ctx.fillStyle = darkMode ? WHITE : BLACK;
@@ -174,8 +176,8 @@
       lines.push(`Dark Mode: ${darkMode ? "ON" : "OFF"} (Press B to toggle dark mode)`);
       lines.push(`Time Played: ${elapsedTime}s`);
       lines.push(`Total Game Time: ${totalGameTime.toFixed(2)}s | Unpaused Time: ${unpausedTime.toFixed(2)}s`);
-      lines.push(`Squares Clicked: ${squaresClicked} | Squares Missed: ${squaresMissed} | Total Prompts: ${totalPrompts}`);
-      lines.push(`Accuracy: ${accuracy.toFixed(2)}% | Prompt Ratio: ${promptRatio.toFixed(2)}%`);
+      lines.push(`Squares Clicked: ${squaresClicked} | Expired: ${squaresExpired} | Misclicks: ${misclicks} | Total Prompts: ${totalPrompts}`);
+      lines.push(`Accuracy: ${accuracy.toFixed(2)}%`);
       lines.push(`Current Streak: ${currentStreak} | Longest Streak: ${longestStreak}`);
       
       const stats = computeReactionStats();
@@ -186,7 +188,7 @@
       }
       
       // Additional key hints line
-      lines.push(`Key Hints: N - Toggle Mode, P - Pause, R - Reset, B - Toggle Dark Mode, Esc - Exit`);
+      lines.push("Key Hints: N - Toggle Mode, P - Pause, R - Reset, B - Toggle Dark Mode, Esc - Exit");
       
       lines.forEach(line => {
         ctx.fillText(line, 10, y);
@@ -236,7 +238,7 @@
       requestAnimationFrame(gameLoop);
     }
 
-    // Event Listener: Mouse Click for handling square clicks
+    // Updated Event Listener: Mouse Click now checks for misclicks.
     canvas.addEventListener("mousedown", function(event) {
       if (!paused) {
         const rect = canvas.getBoundingClientRect();
@@ -244,7 +246,13 @@
           x: event.clientX - rect.left,
           y: event.clientY - rect.top
         };
-        handleSquareClick(pos);
+        // Check if the click hit a square.
+        const hit = handleSquareClick(pos);
+        if (!hit) {
+          // Record misclick as a separate miss and reset streak.
+          misclicks++;
+          currentStreak = 0;
+        }
       }
     });
 
