@@ -31,6 +31,10 @@
     const BLACK = "#000000";
     const RED = "#FF0000";
 
+    // Check if today is April 3rd (months are 0-indexed; April is 3)
+    const today = new Date();
+    const isApril3rd = (today.getMonth() === 3 && today.getDate() === 3);
+
     // Game Variables and Stats
     let mode = "classic"; // Modes: "classic" or "hyper"
     let paused = false;
@@ -49,9 +53,13 @@
     let lastFrameTime = getTime();
 
     // Follow mode variables
-    let followMode = false; // Initially off; will automatically turn on when currentStreak reaches threshold.
-    let followModeThreshold = Math.floor(Math.random() * 16) + 10;  // Random integer between 10 and 25.
+    // Follow mode is only enabled on April 3rd; otherwise, it remains disabled.
+    let followMode = false;
+    let followModeThreshold = isApril3rd ? (Math.floor(Math.random() * 16) + 10) : null;
     let mousePos = { x: 0, y: 0 };
+
+    // New variable to track when the game is paused after disabling AF mode.
+    let afPauseMode = false;
 
     // Set up Canvas
     const canvas = document.getElementById("gameCanvas");
@@ -77,9 +85,10 @@
       unpausedTime = 0.0;
       lastFrameTime = getTime();
       paused = false;
-      // Reset follow mode state and choose a new random threshold between 10 and 25.
+      afPauseMode = false;
+      // Reset follow mode state and choose a new random threshold between 10 and 25 if it's April 3rd.
       followMode = false;
-      followModeThreshold = Math.floor(Math.random() * 16) + 10;
+      followModeThreshold = isApril3rd ? (Math.floor(Math.random() * 16) + 10) : null;
       console.log("New follow mode threshold: " + followModeThreshold);
     }
 
@@ -178,10 +187,11 @@
       const lineHeight = 20;
       const lines = [];
       
-      lines.push(`Mode: ${mode.toUpperCase()} (Press N to toggle mode)`);
+      // On non-April 3rd days, force the mode to display as "CLASSIC (AF)"
+      let modeLabel = isApril3rd ? mode.toUpperCase() : "CLASSIC (AF)";
+      lines.push(`Mode: ${modeLabel} (Press N to toggle mode)`);
       lines.push(`Paused: ${paused} (Press P to toggle pause)`);
       lines.push(`Dark Mode: ${darkMode ? "ON" : "OFF"} (Press B to toggle dark mode)`);
-      lines.push(`Follow Mode: ${followMode ? "ON" : "OFF"} (Activates at streak ${followModeThreshold})`);
       lines.push(`Time Played: ${elapsedTime}s`);
       lines.push(`Total Game Time: ${totalGameTime.toFixed(2)}s | Unpaused Time: ${unpausedTime.toFixed(2)}s`);
       lines.push(`Squares Clicked: ${squaresClicked} | Expired: ${squaresExpired} | Misclicks: ${misclicks} | Total Prompts: ${totalPrompts}`);
@@ -195,7 +205,16 @@
         lines.push(`Std Dev: ${stats.stdev.toFixed(2)}s | 25th: ${stats.p25.toFixed(2)}s | 75th: ${stats.p75.toFixed(2)}s`);
       }
       
-      lines.push("Key Hints: N - Toggle Mode, P - Pause, R - Reset, B - Toggle Dark Mode, Esc - Exit");
+      // Determine key hints based on state:
+      let hints = "Key Hints: ";
+      if (afPauseMode) {
+        hints += "Hit O-key to continue playing in normal mode";
+      } else if (isApril3rd && followMode && squaresExpired >= 35) {
+        hints += "Press O-key to disable AF/Follow mode";
+      } else {
+        hints += "N - Toggle Mode, P - Pause, R - Reset, B - Toggle Dark Mode, Esc - Exit";
+      }
+      lines.push(hints);
       
       lines.forEach(line => {
         ctx.fillText(line, 10, y);
@@ -242,15 +261,15 @@
         removeExpiredSquares();
       }
 
-      // Automatic follow mode toggle: when current streak reaches (or exceeds) the threshold, turn follow mode on.
-      if (!followMode && currentStreak >= followModeThreshold) {
+      // Only allow follow mode activation on April 3rd.
+      if (isApril3rd && !followMode && currentStreak >= followModeThreshold) {
         followMode = true;
         console.log("Follow mode activated at streak: " + currentStreak);
       }
 
-      // In follow mode, if the mouse is within 65 pixels of a square,
+      // In follow mode on April 3rd, if the mouse is within 65 pixels of a square,
       // remove that square, count it as expired, and reset the streak.
-      if (followMode && mousePos) {
+      if (isApril3rd && followMode && mousePos) {
         for (let i = squares.length - 1; i >= 0; i--) {
           const sq = squares[i];
           if (distanceToRect(mousePos, sq) <= 65) {
@@ -273,7 +292,10 @@
       if (paused) {
         ctx.fillStyle = darkMode ? WHITE : BLACK;
         ctx.font = "30px Arial";
-        const text = "Paused";
+        let text = "Paused";
+        if (afPauseMode) {
+          text = "Hit O-key to continue playing in normal mode";
+        }
         const textWidth = ctx.measureText(text).width;
         ctx.fillText(text, (WIDTH - textWidth) / 2, HEIGHT / 2);
       }
@@ -307,7 +329,12 @@
     // Keyboard events.
     document.addEventListener("keydown", function(event) {
       if (event.key === "n" || event.key === "N") {
-        mode = (mode === "hyper") ? "classic" : "hyper";
+        // Only allow mode toggling on April 3rd; on other days force classic.
+        if (isApril3rd) {
+          mode = (mode === "hyper") ? "classic" : "hyper";
+        } else {
+          mode = "classic";
+        }
         squares = [];
         currentStreak = 0;
       } else if (event.key === "p" || event.key === "P") {
@@ -319,6 +346,22 @@
         resetGame();
       } else if (event.key === "b" || event.key === "B") {
         darkMode = !darkMode;
+      } else if (event.key === "o" || event.key === "O") {
+        if (afPauseMode) {
+          // Resume normal mode from AF pause.
+          afPauseMode = false;
+          paused = false;
+          squaresExpired = 0;
+          mode = "classic"; // Force normal play.
+          console.log("Normal mode resumed.");
+        } else if (isApril3rd && followMode && squaresExpired >= 35) {
+          // When the player presses O-key while in AF mode (with ≥35 expired),
+          // disable AF/Follow mode and pause the game.
+          followMode = false;
+          afPauseMode = true;
+          paused = true;
+          console.log("AF/Follow mode disabled. Game paused.");
+        }
       } else if (event.key === "Escape") {
         running = false;
       }
