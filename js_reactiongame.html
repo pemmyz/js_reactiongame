@@ -248,12 +248,12 @@
         console.log("Follow mode activated at streak: " + currentStreak);
       }
 
-      // In follow mode, if the mouse is within 50 pixels of a square,
+      // In follow mode, if the mouse is within 65 pixels of a square,
       // remove that square, count it as expired, and reset the streak.
       if (followMode && mousePos) {
         for (let i = squares.length - 1; i >= 0; i--) {
           const sq = squares[i];
-          if (distanceToRect(mousePos, sq) <= 50) {
+          if (distanceToRect(mousePos, sq) <= 65) {
             squares.splice(i, 1);
             squaresExpired++;
             currentStreak = 0;
