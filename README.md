@@ -27,6 +27,7 @@ This game is a reimagination of a project I did in a JavaScript programming cour
 | `P` | Pause/Unpause                |
 | `R` | Reset the game               |
 | `B` | Toggle Dark Mode               |
+| `W` | Open GitHub Repo             |
 | `Esc` | Hard stop the game               |
 
 ### Modes
