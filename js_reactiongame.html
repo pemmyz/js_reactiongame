@@ -69,9 +69,9 @@
       return performance.now() / 1000;
     }
 
-    // Reset game state and stats.
+    // Reset game state and stats (mode is preserved during reset).
     function resetGame() {
-      mode = "classic";
+      // mode remains as toggled (we no longer force "classic" here)
       squares = [];
       squaresClicked = 0;
       squaresExpired = 0;
@@ -158,8 +158,8 @@
         const average = reactionTimes.reduce((a, b) => a + b, 0) / reactionTimes.length;
         const sorted = [...reactionTimes].sort((a, b) => a - b);
         const median = sorted.length % 2 === 0 ?
-                       (sorted[sorted.length/2 - 1] + sorted[sorted.length/2]) / 2 :
-                       sorted[Math.floor(sorted.length/2)];
+                       (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2 :
+                       sorted[Math.floor(sorted.length / 2)];
         let stdev = 0;
         if (reactionTimes.length > 1) {
           const mean = average;
@@ -191,14 +191,10 @@
       const lineHeight = 20;
       const lines = [];
       
-      // If it's April 1st and AF is available, display the mode with (AF) suffix.
-      // Otherwise, force classic mode and display just "CLASSIC".
-      let modeLabel;
+      // Display the current mode without forcing it to classic.
+      let modeLabel = mode.toUpperCase();
       if (isAprilFools && !afDisabled) {
-        modeLabel = mode.toUpperCase() + " (AF)";
-      } else {
-        mode = "classic";
-        modeLabel = "CLASSIC";
+        modeLabel += " (AF)";
       }
       lines.push(`Mode: ${modeLabel} (Press N to toggle mode)`);
       lines.push(`Paused: ${paused} (Press P to toggle pause)`);
@@ -216,7 +212,6 @@
         lines.push(`Std Dev: ${stats.stdev.toFixed(2)}s | 25th: ${stats.p25.toFixed(2)}s | 75th: ${stats.p75.toFixed(2)}s`);
       }
       
-      // Determine key hints based on current state.
       let hints = "";
       if (afPauseMode) {
         hints = "Hit O-key to continue playing in normal mode";
@@ -339,8 +334,9 @@
     // Keyboard events.
     document.addEventListener("keydown", function(event) {
       if (event.key === "n" || event.key === "N") {
-        // Toggle between classic and hyper modes without checking April 1st.
+        // Toggle between classic and hyper modes.
         mode = (mode === "hyper") ? "classic" : "hyper";
+        console.log("Mode toggled to: " + mode);
         squares = [];
         currentStreak = 0;
       } else if (event.key === "p" || event.key === "P") {
