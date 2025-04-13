@@ -218,7 +218,7 @@
       } else if (isAprilFools && !afDisabled && followMode && squaresExpired >= 35) {
         hints = "Press O-key to disable AF/Follow mode";
       } else {
-        hints = "Key Hints: N - Toggle Mode, P - Pause, R - Reset, B - Toggle Dark Mode, Esc - Exit";
+        hints = "Key Hints: N - Toggle Mode, P - Pause, R - Reset, B - Toggle Dark Mode, Esc - Exit, W - Open GitHub Repo";
       }
       lines.push(hints);
       
@@ -364,6 +364,9 @@
           paused = true;
           console.log("AF/Follow mode disabled. Game paused.");
         }
+      } else if (event.key === "w" || event.key === "W") {
+        // Open the GitHub repo in a new tab.
+        window.open("https://github.com/pemmyz/js_reactiongame", "_blank");
       } else if (event.key === "Escape") {
         running = false;
       }
