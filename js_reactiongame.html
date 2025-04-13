@@ -339,12 +339,8 @@
     // Keyboard events.
     document.addEventListener("keydown", function(event) {
       if (event.key === "n" || event.key === "N") {
-        // Allow mode toggling on April 1st only if AF mode has not been disabled.
-        if (isAprilFools && !afDisabled) {
-          mode = (mode === "hyper") ? "classic" : "hyper";
-        } else {
-          mode = "classic";
-        }
+        // Toggle between classic and hyper modes without checking April 1st.
+        mode = (mode === "hyper") ? "classic" : "hyper";
         squares = [];
         currentStreak = 0;
       } else if (event.key === "p" || event.key === "P") {
