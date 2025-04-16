@@ -185,6 +185,9 @@
       const totalResponses = squaresClicked + squaresExpired + misclicks;
       const accuracy = totalResponses > 0 ? (squaresClicked / totalResponses * 100) : 0;
       
+      // Calculate clicks per second using only squares clicked.
+      const cps = (getTime() - startTime) > 0 ? squaresClicked / (getTime() - startTime) : 0;
+      
       ctx.fillStyle = darkMode ? WHITE : BLACK;
       ctx.font = "16px Arial";
       let y = 20;
@@ -199,7 +202,8 @@
       lines.push(`Mode: ${modeLabel} (Press N to toggle mode)`);
       lines.push(`Paused: ${paused} (Press P to toggle pause)`);
       lines.push(`Dark Mode: ${darkMode ? "ON" : "OFF"} (Press B to toggle dark mode)`);
-      lines.push(`Time Played: ${elapsedTime}s`);
+      // Updated line: show Time Played with clicks per second (only counting squares clicked).
+      lines.push(`Time Played: ${elapsedTime}s | Clicks/Second: ${cps.toFixed(2)}`);
       lines.push(`Total Game Time: ${totalGameTime.toFixed(2)}s | Unpaused Time: ${unpausedTime.toFixed(2)}s`);
       lines.push(`Squares Clicked: ${squaresClicked} | Expired: ${squaresExpired} | Misclicks: ${misclicks} | Total Prompts: ${totalPrompts}`);
       lines.push(`Accuracy: ${accuracy.toFixed(2)}%`);
