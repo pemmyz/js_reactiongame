@@ -294,6 +294,8 @@
     canvas.addEventListener("mousedown", function(event) {
       if (!paused) {
         if (mode === "superEasy") {
+          // Count this as the next prompt
+          totalPrompts++;
           // Always count as hit
           const sq = squares[0];
           squaresClicked++;
