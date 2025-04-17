@@ -23,7 +23,7 @@ This game is a reimagination of a project I did in a JavaScript programming cour
 
 | Key | Action                        |
 |-----|-------------------------------|
-| `N` | Toggle between Classic/Hyper |
+| `N` | Toggle between Classic/Hyper/SUPEREASY |
 | `P` | Pause/Unpause                |
 | `R` | Reset the game               |
 | `B` | Toggle Dark Mode               |
