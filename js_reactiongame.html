@@ -9,68 +9,110 @@
       overflow: hidden;
       background: #333;
     }
+    #container {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+    .side-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin: 0 10px;
+    }
     canvas {
-      display: block;
-      margin: 0 auto;
+      border: 2px solid #555;
+      background: #000;
+    }
+    button {
+      padding: 8px 12px;
+      font-size: 14px;
+      cursor: pointer;
+      border: none;
+      border-radius: 4px;
+      background: #555;
+      color: #fff;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: #777;
     }
   </style>
 </head>
 <body>
-  <canvas id="gameCanvas" width="800" height="600"></canvas>
+  <div id="container">
+    <div class="side-buttons">
+      <button id="btnMode">Mode (N)</button>
+      <button id="btnPause">Pause (P)</button>
+      <button id="btnReset">Reset (R)</button>
+      <button id="btnDark">Dark Mode (B)</button>
+      <button id="btnExit">Exit (Esc)</button>
+      <button id="btnGitHub">GitHub (W)</button>
+    </div>
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <div class="side-buttons">
+      <button id="btnModeR">Mode (N)</button>
+      <button id="btnPauseR">Pause (P)</button>
+      <button id="btnResetR">Reset (R)</button>
+      <button id="btnDarkR">Dark Mode (B)</button>
+      <button id="btnExitR">Exit (Esc)</button>
+      <button id="btnGitHubR">GitHub (W)</button>
+    </div>
+  </div>
   <script>
-    // Game Settings
+    // --- Constants ---
     const WIDTH = 800;
     const HEIGHT = 600;
     const SQUARE_SIZE = 50;
     const MAX_SQUARES = 10;
-    const TIME_LIMIT = 5; // seconds
+    const TIME_LIMIT = 5;
 
-    // Colors
+    // --- Colors ---
     const WHITE = "#FFFFFF";
     const BLACK = "#000000";
     const RED = "#FF0000";
 
-    // Check if today is April 1st (months are 0-indexed; April is 3)
+    // --- Date Check ---
     const today = new Date();
-    const isAprilFools = (today.getMonth() === 3 && today.getDate() === 1);
+    const isAprilFools = today.getMonth() === 3 && today.getDate() === 1;
 
-    // Game Variables and Stats
-    // Modes: "classic", "hyper", or "superEasy"
+    // --- State Variables ---
     let mode = "classic";
     let paused = false;
     let running = true;
-    let darkMode = true; // Dark mode is now default
+    let darkMode = true;
+
     let squares = [];
     let squaresClicked = 0;
-    let squaresExpired = 0; // Count of squares that timed out or expired via proximity
-    let misclicks = 0;      // Count of clicks that did not hit a square
+    let squaresExpired = 0;
+    let misclicks = 0;
     let totalPrompts = 0;
+
     let reactionTimes = [];
     let currentStreak = 0;
     let longestStreak = 0;
+
     let startTime = getTime();
-    let unpausedTime = 0.0;
+    let unpausedTime = 0;
     let lastFrameTime = getTime();
 
-    // Follow mode variables (only applicable on April 1st)
     let followMode = false;
     let followModeThreshold = isAprilFools ? (Math.floor(Math.random() * 16) + 10) : null;
-    let mousePos = { x: 0, y: 0 };
-
-    // New variables to handle AF mode disable and pause
     let afPauseMode = false;
     let afDisabled = false;
 
-    // Set up Canvas
+    let mousePos = { x: 0, y: 0 };
+
+    // --- Canvas Setup ---
     const canvas = document.getElementById("gameCanvas");
     const ctx = canvas.getContext("2d");
 
-    // Helper: get current time in seconds
+    // --- Helpers ---
     function getTime() {
       return performance.now() / 1000;
     }
 
-    // Reset game state and stats (mode preserved)
     function resetGame() {
       squares = [];
       squaresClicked = 0;
@@ -80,11 +122,14 @@
       reactionTimes = [];
       currentStreak = 0;
       longestStreak = 0;
+
       startTime = getTime();
-      unpausedTime = 0.0;
+      unpausedTime = 0;
       lastFrameTime = getTime();
+
       paused = false;
       afPauseMode = false;
+
       if (!afDisabled && isAprilFools) {
         followMode = false;
         followModeThreshold = Math.floor(Math.random() * 16) + 10;
@@ -92,10 +137,8 @@
         followMode = false;
         followModeThreshold = null;
       }
-      console.log("Game reset. Follow mode threshold: " + followModeThreshold);
     }
 
-    // Create a new square at a random location and record its creation time.
     function createSquare() {
       const x = Math.random() * (WIDTH - SQUARE_SIZE);
       const y = Math.random() * (HEIGHT - SQUARE_SIZE);
@@ -104,64 +147,34 @@
       return { x, y, size: SQUARE_SIZE, createdAt };
     }
 
-    // Remove squares that have expired (time-out)
     function removeExpiredSquares() {
-      const currentTime = getTime();
+      const now = getTime();
       let expired = false;
       squares = squares.filter(sq => {
-        if (currentTime - sq.createdAt > TIME_LIMIT) {
+        if (now - sq.createdAt > TIME_LIMIT) {
           squaresExpired++;
           expired = true;
           return false;
         }
         return true;
       });
-      if (expired) {
-        currentStreak = 0;
-      }
+      if (expired) currentStreak = 0;
     }
 
-    // Draw all active squares
-    function drawSquares() {
-      ctx.fillStyle = RED;
-      squares.forEach(sq => {
-        ctx.fillRect(sq.x, sq.y, sq.size, sq.size);
-      });
-    }
-
-    // Handle square click in classic/hyper modes
-    function handleSquareClick(pos) {
-      for (let i = 0; i < squares.length; i++) {
-        const sq = squares[i];
-        if (pos.x >= sq.x && pos.x <= sq.x + sq.size &&
-            pos.y >= sq.y && pos.y <= sq.y + sq.size) {
-          squares.splice(i, 1);
-          squaresClicked++;
-          const reaction = getTime() - sq.createdAt;
-          reactionTimes.push(reaction);
-          currentStreak++;
-          if (currentStreak > longestStreak) longestStreak = currentStreak;
-          return true;
-        }
-      }
-      return false;
-    }
-
-    // Compute reaction time statistics
     function computeReactionStats() {
       if (reactionTimes.length === 0) return null;
       const fastest = Math.min(...reactionTimes);
       const slowest = Math.max(...reactionTimes);
       const average = reactionTimes.reduce((a, b) => a + b, 0) / reactionTimes.length;
       const sorted = [...reactionTimes].sort((a, b) => a - b);
-      const median = sorted.length % 2 === 0 ?
-                     (sorted[sorted.length/2 - 1] + sorted[sorted.length/2]) / 2 :
-                     sorted[Math.floor(sorted.length/2)];
+      const median = sorted.length % 2 === 0
+        ? (sorted[sorted.length/2 - 1] + sorted[sorted.length/2]) / 2
+        : sorted[Math.floor(sorted.length/2)];
       let stdev = 0;
       if (reactionTimes.length > 1) {
         const mean = average;
-        const sqDiffs = reactionTimes.map(rt => Math.pow(rt - mean, 2));
-        stdev = Math.sqrt(sqDiffs.reduce((a, b) => a + b, 0) / (reactionTimes.length - 1));
+        const diffs = reactionTimes.map(rt => (rt - mean) ** 2);
+        stdev = Math.sqrt(diffs.reduce((a, b) => a + b, 0) / (reactionTimes.length - 1));
       }
       const n = sorted.length;
       const p25 = sorted[Math.floor(0.25 * (n - 1))];
@@ -169,28 +182,32 @@
       return { fastest, slowest, average, median, stdev, p25, p75 };
     }
 
-    // Draw game statistics and instructions
+    // --- Drawing ---
+    function drawSquares() {
+      ctx.fillStyle = RED;
+      squares.forEach(sq => ctx.fillRect(sq.x, sq.y, sq.size, sq.size));
+    }
+
     function drawStats() {
-      const elapsedTime = Math.floor(getTime() - startTime);
-      const currentTimeDisplay = paused ? lastFrameTime : getTime();
-      const totalGameTime = currentTimeDisplay - startTime;
-      const totalResponses = squaresClicked + squaresExpired + misclicks;
-      const accuracy = totalResponses > 0 ? (squaresClicked / totalResponses * 100) : 0;
-      const cps = (getTime() - startTime) > 0 ? squaresClicked / (getTime() - startTime) : 0;
+      const elapsed = Math.floor(getTime() - startTime);
+      const totalTime = (paused ? lastFrameTime : getTime()) - startTime;
+      const totalResp = squaresClicked + squaresExpired + misclicks;
+      const accuracy = totalResp ? (squaresClicked / totalResp * 100) : 0;
+      const cps = (getTime() - startTime) ? squaresClicked / (getTime() - startTime) : 0;
 
       ctx.fillStyle = darkMode ? WHITE : BLACK;
       ctx.font = "16px Arial";
       let y = 20;
-      const lineHeight = 20;
       const lines = [];
 
       let modeLabel = mode.toUpperCase();
       if (isAprilFools && !afDisabled) modeLabel += " (AF)";
+
       lines.push(`Mode: ${modeLabel} (Press N to toggle mode)`);
       lines.push(`Paused: ${paused} (Press P to toggle pause)`);
-      lines.push(`Dark Mode: ${darkMode ? "ON" : "OFF"} (Press B to toggle dark mode)`);
-      lines.push(`Time Played: ${elapsedTime}s | Clicks/Second: ${cps.toFixed(2)}`);
-      lines.push(`Total Game Time: ${totalGameTime.toFixed(2)}s | Unpaused Time: ${unpausedTime.toFixed(2)}s`);
+      lines.push(`Dark Mode: ${darkMode ? 'ON' : 'OFF'} (Press B to toggle dark mode)`);
+      lines.push(`Time Played: ${elapsed}s | Clicks/Second: ${cps.toFixed(2)}`);
+      lines.push(`Total Game Time: ${totalTime.toFixed(2)}s | Unpaused Time: ${unpausedTime.toFixed(2)}s`);
       lines.push(`Squares Clicked: ${squaresClicked} | Expired: ${squaresExpired} | Misclicks: ${misclicks} | Total Prompts: ${totalPrompts}`);
       lines.push(`Accuracy: ${accuracy.toFixed(2)}%`);
       lines.push(`Current Streak: ${currentStreak} | Longest Streak: ${longestStreak}`);
@@ -202,52 +219,39 @@
         lines.push(`Std Dev: ${stats.stdev.toFixed(2)}s | 25th: ${stats.p25.toFixed(2)}s | 75th: ${stats.p75.toFixed(2)}s`);
       }
 
-      let hints = "Key Hints: N - Toggle Mode, P - Pause, R - Reset, B - Toggle Dark Mode, Esc - Exit, W - Open GitHub Repo";
-      if (afPauseMode) hints = "Hit O-key to continue playing in normal mode";
-      else if (isAprilFools && !afDisabled && followMode && squaresExpired >= 35) {
-        hints = "Press O-key to disable AF/Follow mode";
-      }
-      lines.push(hints);
+      lines.push("Key Hints: N - Toggle Mode, P - Pause, R - Reset, B - Toggle Dark Mode, Esc - Exit, W - Open GitHub Repo");
 
       lines.forEach(line => {
         ctx.fillText(line, 10, y);
-        y += lineHeight;
+        y += 20;
       });
     }
 
-    // Compute distance from a point to a rectangle
+    // --- Utility ---
     function distanceToRect(pt, rect) {
-      let dx = 0;
-      if (pt.x < rect.x) dx = rect.x - pt.x;
-      else if (pt.x > rect.x + rect.size) dx = pt.x - (rect.x + rect.size);
-      let dy = 0;
-      if (pt.y < rect.y) dy = rect.y - pt.y;
-      else if (pt.y > rect.y + rect.size) dy = pt.y - (rect.y + rect.size);
+      const dx = Math.max(rect.x - pt.x, 0, pt.x - (rect.x + rect.size));
+      const dy = Math.max(rect.y - pt.y, 0, pt.y - (rect.y + rect.size));
       return Math.sqrt(dx * dx + dy * dy);
     }
 
-    // Main game_loop
+    // --- Main Loop ---
     function gameLoop() {
       if (!running) return;
-      const currentFrameTime = getTime();
-      const dt = currentFrameTime - lastFrameTime;
-      lastFrameTime = currentFrameTime;
+      const now = getTime();
+      const dt = now - lastFrameTime;
+      lastFrameTime = now;
 
       if (!paused) {
         unpausedTime += dt;
-        // Spawn/move squares based on mode
         if (mode === "classic") {
           if (squares.length === 0) squares.push(createSquare());
         } else if (mode === "hyper") {
           if (squares.length < MAX_SQUARES) squares.push(createSquare());
-        } else if (mode === "superEasy") {
-          // Only one square that follows the mouse
+        } else {
+          // superEasy
           if (squares.length === 0) {
-            const createdAt = getTime();
-            const x = mousePos.x - SQUARE_SIZE/2;
-            const y = mousePos.y - SQUARE_SIZE/2;
             totalPrompts++;
-            squares.push({ x, y, size: SQUARE_SIZE, createdAt });
+            squares.push({ x: mousePos.x - SQUARE_SIZE/2, y: mousePos.y - SQUARE_SIZE/2, size: SQUARE_SIZE, createdAt: now });
           } else {
             squares[0].x = mousePos.x - SQUARE_SIZE/2;
             squares[0].y = mousePos.y - SQUARE_SIZE/2;
@@ -256,25 +260,20 @@
         if (mode !== "superEasy") removeExpiredSquares();
       }
 
-      // April Fools follow mode activation
       if (isAprilFools && !afDisabled && !followMode && currentStreak >= followModeThreshold) {
         followMode = true;
-        console.log("Follow mode activated at streak: " + currentStreak);
       }
-
-      // AF mode proximity expiration
-      if (isAprilFools && !afDisabled && followMode && mousePos) {
-        for (let i = squares.length - 1; i >= 0; i--) {
-          const sq = squares[i];
+      if (isAprilFools && !afDisabled && followMode) {
+        squares = squares.filter(sq => {
           if (distanceToRect(mousePos, sq) <= 65) {
-            squares.splice(i, 1);
             squaresExpired++;
             currentStreak = 0;
+            return false;
           }
-        }
+          return true;
+        });
       }
 
-      // Clear and redraw
       ctx.fillStyle = darkMode ? BLACK : WHITE;
       ctx.fillRect(0, 0, WIDTH, HEIGHT);
       drawSquares();
@@ -283,85 +282,99 @@
       if (paused) {
         ctx.fillStyle = darkMode ? WHITE : BLACK;
         ctx.font = "30px Arial";
-        const text = afPauseMode ? "Hit O-key to continue playing in normal mode" : "Paused";
-        const textWidth = ctx.measureText(text).width;
-        ctx.fillText(text, (WIDTH - textWidth)/2, HEIGHT/2);
+        const msg = afPauseMode ? "Press O to continue" : "Paused";
+        const w = ctx.measureText(msg).width;
+        ctx.fillText(msg, (WIDTH - w)/2, HEIGHT/2);
       }
+
       requestAnimationFrame(gameLoop);
     }
 
-    // Mouse click event
-    canvas.addEventListener("mousedown", function(event) {
-      if (!paused) {
-        if (mode === "superEasy") {
-          // Count this as the next prompt
-          totalPrompts++;
-          // Always count as hit
-          const sq = squares[0];
-          squaresClicked++;
-          const reaction = getTime() - sq.createdAt;
-          reactionTimes.push(reaction);
-          currentStreak++;
-          if (currentStreak > longestStreak) longestStreak = currentStreak;
-          // Reset for next click
-          sq.createdAt = getTime();
-          return;
-        }
-        const rect = canvas.getBoundingClientRect();
-        const pos = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-        const hit = handleSquareClick(pos);
-        if (!hit) {
-          misclicks++;
-          currentStreak = 0;
-        }
+    // --- Event Handling ---
+    canvas.addEventListener("mousedown", event => {
+      if (paused) return;
+      const rect = canvas.getBoundingClientRect();
+      const pos = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+
+      if (mode === "superEasy") {
+        squaresClicked++;
+        reactionTimes.push(getTime() - squares[0].createdAt);
+        currentStreak++;
+        if (currentStreak > longestStreak) longestStreak = currentStreak;
+        squares[0].createdAt = getTime();
+        return;
+      }
+
+      const hitIndex = squares.findIndex(sq =>
+        pos.x >= sq.x && pos.x <= sq.x + sq.size &&
+        pos.y >= sq.y && pos.y <= sq.y + sq.size);
+      if (hitIndex !== -1) {
+        squaresClicked++;
+        reactionTimes.push(getTime() - squares[hitIndex].createdAt);
+        squares.splice(hitIndex, 1);
+        currentStreak++;
+        if (currentStreak > longestStreak) longestStreak = currentStreak;
+      } else {
+        misclicks++;
+        currentStreak = 0;
       }
     });
 
-    // Update mouse position
-    canvas.addEventListener("mousemove", function(event) {
+    canvas.addEventListener("mousemove", event => {
       const rect = canvas.getBoundingClientRect();
       mousePos.x = event.clientX - rect.left;
       mousePos.y = event.clientY - rect.top;
     });
 
-    // Keyboard events
-    document.addEventListener("keydown", function(event) {
-      if (event.key === "n" || event.key === "N") {
-        // Cycle modes
-        if (mode === "classic") mode = "hyper";
-        else if (mode === "hyper") mode = "superEasy";
-        else mode = "classic";
+    function togglePause() {
+      paused = !paused;
+      if (!paused) lastFrameTime = getTime();
+    }
+
+    function handleOKey() {
+      if (afPauseMode) {
+        afDisabled = true;
+        afPauseMode = false;
+        paused = false;
         resetGame();
-        console.log("Mode toggled to: " + mode);
-      } else if (event.key === "p" || event.key === "P") {
-        paused = !paused;
-        if (!paused) lastFrameTime = getTime();
-      } else if (event.key === "r" || event.key === "R") {
-        resetGame();
-      } else if (event.key === "b" || event.key === "B") {
-        darkMode = !darkMode;
-      } else if (event.key === "o" || event.key === "O") {
-        if (afPauseMode) {
-          afDisabled = true;
-          afPauseMode = false;
-          paused = false;
-          resetGame();
-          mode = "classic";
-          console.log("AF/Follow mode permanently disabled. Restarting in normal mode.");
-        } else if (isAprilFools && !afDisabled && followMode && squaresExpired >= 35) {
-          followMode = false;
-          afPauseMode = true;
-          paused = true;
-          console.log("AF/Follow mode disabled. Game paused.");
-        }
-      } else if (event.key === "w" || event.key === "W") {
-        window.open("https://github.com/pemmyz/js_reactiongame", "_blank");
-      } else if (event.key === "Escape") {
-        running = false;
+        mode = "classic";
+      } else if (isAprilFools && !afDisabled && followMode && squaresExpired >= 35) {
+        followMode = false;
+        afPauseMode = true;
+        paused = true;
       }
+    }
+
+    document.addEventListener("keydown", event => {
+      const key = event.key.toLowerCase();
+      if (key === "n") toggleMode();
+      else if (key === "p") togglePause();
+      else if (key === "r") resetGame();
+      else if (key === "b") darkMode = !darkMode;
+      else if (event.key === "Escape") running = false;
+      else if (key === "w") window.open("https://github.com/pemmyz/js_reactiongame", "_blank");
+      else if (key === "o") handleOKey();
     });
 
-    // Start the game loop
+    function toggleMode() {
+      mode = mode === "classic" ? "hyper" : mode === "hyper" ? "superEasy" : "classic";
+      resetGame();
+    }
+
+    // --- Button Wiring ---
+    [
+      ['btnMode', toggleMode], ['btnModeR', toggleMode],
+      ['btnPause', togglePause], ['btnPauseR', togglePause],
+      ['btnReset', resetGame], ['btnResetR', resetGame],
+      ['btnDark', () => darkMode = !darkMode], ['btnDarkR', () => darkMode = !darkMode],
+      ['btnExit', () => running = false], ['btnExitR', () => running = false],
+      ['btnGitHub', () => window.open("https://github.com/pemmyz/js_reactiongame", "_blank")],
+      ['btnGitHubR', () => window.open("https://github.com/pemmyz/js_reactiongame", "_blank")]
+    ].forEach(([id, fn]) => {
+      document.getElementById(id).addEventListener('click', fn);
+    });
+
+    // --- Start ---
     requestAnimationFrame(gameLoop);
   </script>
 </body>
