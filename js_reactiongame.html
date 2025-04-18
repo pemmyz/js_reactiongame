@@ -1,208 +1,368 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="utf-8">
-  <title>Maze Game WebGL with Bot Mode & Map Overlay</title>
+  <meta charset="UTF-8">
+  <title>Browser Reaction Game</title>
   <style>
-    body { margin: 0; overflow: hidden; }
-    #glCanvas, #mazeCanvas { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; }
-    #glCanvas { z-index: 0; }
-    #mazeCanvas { z-index: 1; pointer-events: auto; }
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #333;
+    }
+    canvas {
+      display: block;
+      margin: 0 auto;
+    }
   </style>
-  <script src="gl-matrix-min.js"></script>
 </head>
 <body>
-  <canvas id="glCanvas"></canvas>
-  <canvas id="mazeCanvas"></canvas>
+  <canvas id="gameCanvas" width="800" height="600"></canvas>
   <script>
-    // Utility
-    function toRadian(deg) { return deg * Math.PI / 180; }
-    function lerp(a, b, t) { return a + (b - a) * t; }
-    function lerpAngle(a, b, t) { return a + (b - a) * t; }
+    // Game Settings
+    const WIDTH = 800;
+    const HEIGHT = 600;
+    const SQUARE_SIZE = 50;
+    const MAX_SQUARES = 10;
+    const TIME_LIMIT = 5; // seconds
 
-    // Shaders
-    const vsSource = `
-      attribute vec3 aPosition;
-      attribute vec2 aTexCoord;
-      uniform mat4 uProjection, uView, uModel;
-      varying vec2 vTexCoord;
-      void main(void) {
-        gl_Position = uProjection * uView * uModel * vec4(aPosition,1.0);
-        vTexCoord = aTexCoord;
-      }
-    `;
-    const fsSource = `
-      precision mediump float;
-      varying vec2 vTexCoord;
-      uniform sampler2D uTexture;
-      void main(void) { gl_FragColor = texture2D(uTexture, vTexCoord); }
-    `;
-    function loadShader(gl,type,src){ const s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s);
-      if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){ console.error(gl.getShaderInfoLog(s)); gl.deleteShader(s); return null;} return s; }
-    function initShaderProgram(gl,vs,fs){ const v=loadShader(gl,gl.VERTEX_SHADER,vs), f=loadShader(gl,gl.FRAGMENT_SHADER,fs);
-      const p=gl.createProgram(); gl.attachShader(p,v); gl.attachShader(p,f); gl.linkProgram(p);
-      if(!gl.getProgramParameter(p,gl.LINK_STATUS)){ console.error(gl.getProgramInfoLog(p)); return null;} return p; }
+    // Colors
+    const WHITE = "#FFFFFF";
+    const BLACK = "#000000";
+    const RED = "#FF0000";
 
-    // Texture
-    function loadTexture(gl,url){ const tex=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,tex);
-      gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,1,1,0,gl.RGB,gl.UNSIGNED_BYTE,new Uint8Array([255,255,255]));
-      const img=new Image(); img.onload=()=>{ gl.bindTexture(gl.TEXTURE_2D,tex); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,img);
-        if(isPowerOf2(img.width)&&isPowerOf2(img.height)) gl.generateMipmap(gl.TEXTURE_2D);
-        else{ gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
-              gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
-              gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);} };
-      img.onerror=()=>console.error("Texture load failed:",url); img.src=url; return tex;
+    // Check if today is April 1st (months are 0-indexed; April is 3)
+    const today = new Date();
+    const isAprilFools = (today.getMonth() === 3 && today.getDate() === 1);
+
+    // Game Variables and Stats
+    // Modes: "classic", "hyper", or "superEasy"
+    let mode = "classic";
+    let paused = false;
+    let running = true;
+    let darkMode = true; // Dark mode is now default
+    let squares = [];
+    let squaresClicked = 0;
+    let squaresExpired = 0; // Count of squares that timed out or expired via proximity
+    let misclicks = 0;      // Count of clicks that did not hit a square
+    let totalPrompts = 0;
+    let reactionTimes = [];
+    let currentStreak = 0;
+    let longestStreak = 0;
+    let startTime = getTime();
+    let unpausedTime = 0.0;
+    let lastFrameTime = getTime();
+
+    // Follow mode variables (only applicable on April 1st)
+    let followMode = false;
+    let followModeThreshold = isAprilFools ? (Math.floor(Math.random() * 16) + 10) : null;
+    let mousePos = { x: 0, y: 0 };
+
+    // New variables to handle AF mode disable and pause
+    let afPauseMode = false;
+    let afDisabled = false;
+
+    // Set up Canvas
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+
+    // Helper: get current time in seconds
+    function getTime() {
+      return performance.now() / 1000;
     }
-    function isPowerOf2(v){return(v& (v-1))===0;}
 
-    // Maze gen
-    class Rect{ constructor(x,y,w,h){this.x1=x;this.y1=y;this.x2=x+w;this.y2=y+h; this.center=[Math.floor((this.x1+this.x2)/2),Math.floor((this.y1+this.y2)/2)];}
-      intersect(o){return this.x1<o.x2&&this.x2>o.x1&&this.y1<o.y2&&this.y2>o.y1;} }
-    function createMap(w,h,maxR,minS,maxS,seed){ if(seed!==undefined)console.log("seed",seed);
-      const grid=Array.from({length:h},()=>Array(w).fill('#')), rooms=[];
-      for(let i=0;i<maxR;i++){ const rw=Math.floor(Math.random()*(maxS-minS+1))+minS,
-            rh=Math.floor(Math.random()*(maxS-minS+1))+minS,
-            rx=Math.floor(Math.random()*(w-rw-2))+1, ry=Math.floor(Math.random()*(h-rh-2))+1,
-            nr=new Rect(rx,ry,rw,rh);
-        if(rooms.some(r=>nr.intersect(r))) continue;
-        const x1=nr.x1+(rw>2?1:0), y1=nr.y1+(rh>2?1:0), x2=nr.x2-(rw>2?1:0), y2=nr.y2-(rh>2?1:0);
-        for(let yy=y1;yy<y2;yy++) for(let xx=x1;xx<x2;xx++) grid[yy][xx]=' ';
-        if(rooms.length){ const prev=rooms[rooms.length-1], [px,py]=prev.center, [nx,ny]=nr.center;
-          if(Math.random()<0.5){ for(let xx=Math.min(px,nx);xx<=Math.max(px,nx);xx++) grid[py][xx]=' ';
-            for(let yy=Math.min(py,ny);yy<=Math.max(py,ny);yy++) grid[yy][nx]=' '; }
-          else{ for(let yy=Math.min(py,ny);yy<=Math.max(py,ny);yy++) grid[yy][px]=' ';
-            for(let xx=Math.min(px,nx);xx<=Math.max(px,nx);xx++) grid[ny][xx]=' '; }}
-        rooms.push(nr);
+    // Reset game state and stats (mode preserved)
+    function resetGame() {
+      squares = [];
+      squaresClicked = 0;
+      squaresExpired = 0;
+      misclicks = 0;
+      totalPrompts = 0;
+      reactionTimes = [];
+      currentStreak = 0;
+      longestStreak = 0;
+      startTime = getTime();
+      unpausedTime = 0.0;
+      lastFrameTime = getTime();
+      paused = false;
+      afPauseMode = false;
+      if (!afDisabled && isAprilFools) {
+        followMode = false;
+        followModeThreshold = Math.floor(Math.random() * 16) + 10;
+      } else {
+        followMode = false;
+        followModeThreshold = null;
       }
-      if(rooms.length){ const last=rooms[rooms.length-1], cen=last.center, cand=[];
-        if(last.x2-last.x1>=6&&last.y2-last.y1>=6) cand.push([last.x1+1,last.y1+1],[last.x2-2,last.y1+1],[last.x1+1,last.y2-2],[last.x2-2,last.y2-2]);
-        else for(let yy=last.y1+1;yy<last.y2-1;yy++) cand.push([last.x1+1,yy],[last.x2-2,yy]);
-        let exit=cand.reduce((b,c)=>{const d=Math.abs(c[0]-cen[0])+Math.abs(c[1]-cen[1]); return d>(b.d||-1)?{c,d}:b;},{}).c;
-        if(exit) grid[exit[1]][exit[0]]='E'; }
-      for(let yy=0;yy<h;yy++) for(let xx=0;xx<w;xx++) if(grid[yy][xx]==='#'){
-        let corner=false; rooms.forEach(r=>[[r.x1,r.y1],[r.x2-1,r.y1],[r.x1,r.y2-1],[r.x2-1,r.y2-1]].forEach(c=>{if(c[0]===xx&&c[1]===yy) corner=true;}));
-        if(corner) continue; let adj=false; [[-1,0],[1,0],[0,-1],[0,1]].forEach(d=>{const nx=xx+d[0], ny=yy+d[1]; if(ny>=0&&ny<h&&nx>=0&&nx<w){const c=grid[ny][nx]; if(c===' '||c==='E') adj=true;}});
-        if(!adj) grid[yy][xx]='B'; }
-      return {maze:grid.map(r=>r.join('')), rooms}; }
+      console.log("Game reset. Follow mode threshold: " + followModeThreshold);
+    }
 
-    // Build geometry
-    function buildGeometry(m){ const fv=[],cv=[],wv=[],ev=[], rows=m.length, cols=m[0].length;
-      for(let z=0;z<rows;z++)for(let x=0;x<cols;x++){ // floor & ceil
-        [[fv,0],[cv,1]].forEach(([arr,y])=>{ arr.push(x,y,z,0,0, x+1,y,z,1,0, x+1,y,z+1,1,1, x,y,z,0,0, x+1,y,z+1,1,1, x,y,z+1,0,1); });
-        const c=m[z][x], isE=c==='E', tgt=isE?ev:wv;
-        if(['#','B','E'].includes(c)){
-          [['north',z===0||!['#','B','E'].includes(m[z-1][x])],['south',z===rows-1||!['#','B','E'].includes(m[z+1][x])],['west',x===0||!['#','B','E'].includes(m[z][x-1])],['east',x===cols-1||!['#','B','E'].includes(m[z][x+1])]].forEach(([d,ok])=>{
-            if(!ok) return;
-            if(d==='north') tgt.push(x,0,z,0,0, x+1,0,z,1,0, x+1,1,z,1,1, x,0,z,0,0, x+1,1,z,1,1, x,1,z,0,1);
-            if(d==='south') tgt.push(x,0,z+1,0,0, x+1,0,z+1,1,0, x+1,1,z+1,1,1, x,0,z+1,0,0, x+1,1,z+1,1,1, x,1,z+1,0,1);
-            if(d==='west')  tgt.push(x,0,z,0,0, x,0,z+1,1,0, x,1,z+1,1,1, x,0,z,0,0, x,1,z+1,1,1, x,1,z,0,1);
-            if(d==='east')  tgt.push(x+1,0,z,0,0, x+1,0,z+1,1,0, x+1,1,z+1,1,1, x+1,0,z,0,0, x+1,1,z+1,1,1, x+1,1,z,0,1);
-          });
+    // Create a new square at a random location and record its creation time.
+    function createSquare() {
+      const x = Math.random() * (WIDTH - SQUARE_SIZE);
+      const y = Math.random() * (HEIGHT - SQUARE_SIZE);
+      const createdAt = getTime();
+      totalPrompts++;
+      return { x, y, size: SQUARE_SIZE, createdAt };
+    }
+
+    // Remove squares that have expired (time-out)
+    function removeExpiredSquares() {
+      const currentTime = getTime();
+      let expired = false;
+      squares = squares.filter(sq => {
+        if (currentTime - sq.createdAt > TIME_LIMIT) {
+          squaresExpired++;
+          expired = true;
+          return false;
+        }
+        return true;
+      });
+      if (expired) {
+        currentStreak = 0;
+      }
+    }
+
+    // Draw all active squares
+    function drawSquares() {
+      ctx.fillStyle = RED;
+      squares.forEach(sq => {
+        ctx.fillRect(sq.x, sq.y, sq.size, sq.size);
+      });
+    }
+
+    // Handle square click in classic/hyper modes
+    function handleSquareClick(pos) {
+      for (let i = 0; i < squares.length; i++) {
+        const sq = squares[i];
+        if (pos.x >= sq.x && pos.x <= sq.x + sq.size &&
+            pos.y >= sq.y && pos.y <= sq.y + sq.size) {
+          squares.splice(i, 1);
+          squaresClicked++;
+          const reaction = getTime() - sq.createdAt;
+          reactionTimes.push(reaction);
+          currentStreak++;
+          if (currentStreak > longestStreak) longestStreak = currentStreak;
+          return true;
         }
       }
-      return { floor:new Float32Array(fv), ceiling:new Float32Array(cv), wallBrick:new Float32Array(wv), wallExit:new Float32Array(ev) };
+      return false;
     }
 
-    // Globals
-    let gl, program, attribs, uniforms, buffers={}, textures={}, mazeData, geom;
-    let discovered=[], playerPos=[2.5,0.5,2.5], playerAng=0;
-    const mw=100,mh=100,maxR=40,minS=3,maxS=8;
-    let showFull=false, showHelp=true;
-    let animT=false, t0=0, durT=100,startP,targetP;
-    let animR=false, r0=0, durR=200,startA,targetA;
-    let dragging=false, dx0=0, dy0=0, offX=0, offY=0;
-    let bot=false, path=[], pi=0, algo='bfs';
-
-    // Pathfinding
-    const dirsP=[{x:1,y:0},{x:-1,y:0},{x:0,y:1},{x:0,y:-1}];
-    function key(c){return c.x+','+c.y;}    
-    function neigh(c,m){return dirsP.map(d=>({x:c.x+d.x,y:c.y+d.y})).filter(n=>n.y>=0&&n.y<m.length&&n.x>=0&&n.x<m[0].length&&[' ','E'].includes(m[n.y][n.x]));}
-    function bfs(s,g,m){let q=[s],cf={};cf[key(s)]=null;while(q.length){const c=q.shift(); if(c.x===g.x&&c.y===g.y){let p=[],cur=c;while(cur){p.push(cur);cur=cf[key(cur)];}return p.reverse();} neigh(c,m).forEach(n=>{if(!(key(n) in cf)){cf[key(n)]=c;q.push(n);}});}return[];}
-    function dfs(s,g,m){let st=[s],cf={};cf[key(s)]=null;while(st.length){const c=st.pop(); if(c.x===g.x&&c.y===g.y){let p=[],cur=c;while(cur){p.push(cur);cur=cf[key(cur)];}return p.reverse();} neigh(c,m).forEach(n=>{if(!(key(n) in cf)){cf[key(n)]=c;st.push(n);}});}return[];}
-    function heuristic(a,b){return Math.abs(a.x-b.x)+Math.abs(a.y-b.y);}    
-    function astar(s,g,m){let open=[{c:s,pr:0}], cf={},cost={},p; cf[key(s)]=null; cost[key(s)]=0; while(open.length){open.sort((a,b)=>a.pr-b.pr);const cur=open.shift().c; if(cur.x===g.x&&cur.y===g.y){let path=[],c2=cur;while(c2){path.push(c2);c2=cf[key(c2)];}return path.reverse();} neigh(cur,m).forEach(n=>{const nc=cost[key(cur)]+1; if(!(key(n) in cost)||nc<cost[key(n)]){cost[key(n)]=nc; cf[key(n)]=cur; open.push({c:n,pr:nc+heuristic(n,g)});}});}return[];}
-    function explore(s,g,m,rooms){const exitRoom=rooms.find(r=>s.x>=r.x1&&s.x<r.x2&&s.y>=r.y1&&s.y<r.y2), centers=rooms.map(r=>({x:r.center[0],y:r.center[1]})); centers.push({x:g.x,y:g.y}); let cur=s, full=[]; centers.forEach(cn=>{const seg=bfs(cur,cn,m); if(seg.length){ if(full.length&&seg[0].x===full[full.length-1].x&&seg[0].y===full[full.length-1].y) full=full.concat(seg.slice(1)); else full=full.concat(seg); cur=cn; }}); return full; }
-    function computePath(){let exit=null; mazeData.maze.forEach((row,y)=>row.split('').forEach((c,x)=>{ if(c==='E') exit={x,y};})); if(!exit) return; const start={x:Math.floor(playerPos[0]),y:Math.floor(playerPos[2])}; switch(algo){case'bfs':path=bfs(start,exit,mazeData.maze);break;case'dfs':path=dfs(start,exit,mazeData.maze);break;case'astar':path=astar(start,exit,mazeData.maze);break;case'explore':path=explore(start,exit,mazeData.maze,mazeData.rooms);break;} pi=0; }
-
-    // Collision
-    function canMove(x,z){const cell=mazeData.maze[Math.floor(z)].charAt(Math.floor(x)); return cell!=='#'&&cell!=='B';}
-
-    // Restart
-    function restart(){ const s=Date.now(); mazeData=createMap(mw,mh,maxR,minS,maxS,s); geom=buildGeometry(mazeData.maze); initBuffers(); mazeData.rooms&&mazeData.rooms.length&&(playerPos[0]=mazeData.rooms[0].center[0]+0.5,playerPos[2]=mazeData.rooms[0].center[1]+0.5); playerAng=0; offX=offY=0; if(bot) computePath(); }
-
-    // Input
-    function onKey(e){ if(e.key.match(/[bBmMh1-4]/)){ switch(e.key){case 'b':case'B':bot=!bot; if(bot)computePath(); break;case 'm':case'M':showFull=!showFull;break;case 'h':case'H':showHelp=!showHelp;break;case '1':algo='bfs';bot&&computePath();break;case '2':algo='dfs';bot&&computePath();break;case '3':algo='astar';bot&&computePath();break;case '4':algo='explore';bot&&computePath();break;} return;} if(bot||animT||animR)return; const rad=toRadian(playerAng);
-      let nx, nz;
-      switch(e.key){case 'w':case'ArrowUp': nx=playerPos[0]+Math.sin(rad); nz=playerPos[2]+Math.cos(rad); if(canMove(nx,nz)){animT=true; t0=performance.now(); startP=[...playerPos]; targetP=[nx,playerPos[1],nz];} break;
-        case 's':case'ArrowDown': nx=playerPos[0]-Math.sin(rad); nz=playerPos[2]-Math.cos(rad); if(canMove(nx,nz)){animT=true; t0=performance.now(); startP=[...playerPos]; targetP=[nx,playerPos[1],nz];} break;
-        case 'a':case'ArrowLeft': animR=true; r0=performance.now(); startA=playerAng; targetA=(playerAng+90)%360; break;
-        case 'd':case'ArrowRight': animR=true; r0=performance.now(); startA=playerAng; targetA=(playerAng+270)%360; break;
+    // Compute reaction time statistics
+    function computeReactionStats() {
+      if (reactionTimes.length === 0) return null;
+      const fastest = Math.min(...reactionTimes);
+      const slowest = Math.max(...reactionTimes);
+      const average = reactionTimes.reduce((a, b) => a + b, 0) / reactionTimes.length;
+      const sorted = [...reactionTimes].sort((a, b) => a - b);
+      const median = sorted.length % 2 === 0 ?
+                     (sorted[sorted.length/2 - 1] + sorted[sorted.length/2]) / 2 :
+                     sorted[Math.floor(sorted.length/2)];
+      let stdev = 0;
+      if (reactionTimes.length > 1) {
+        const mean = average;
+        const sqDiffs = reactionTimes.map(rt => Math.pow(rt - mean, 2));
+        stdev = Math.sqrt(sqDiffs.reduce((a, b) => a + b, 0) / (reactionTimes.length - 1));
       }
-    }
-    window.addEventListener('keydown',onKey);
-    function onMouseDown(e){dragging=true;dx0=e.clientX;dy0=e.clientY;}
-    function onMouseMove(e){if(dragging){offX+=e.clientX-dx0;offY+=e.clientY-dy0;dx0=e.clientX;dy0=e.clientY;}}
-    function onMouseUp(){dragging=false;}
-
-    // Init buffers
-    function initBuffers(){ ['floor','ceiling','wallBrick','wallExit'].forEach(name=>{ const buf=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,buf); gl.bufferData(gl.ARRAY_BUFFER,geom[name],gl.STATIC_DRAW); buffers[name]={buffer:buf,vertexCount:geom[name].length/5}; }); }
-
-    // Draw
-    function draw(buf,tex,model){ gl.bindBuffer(gl.ARRAY_BUFFER,buf.buffer);
-      gl.enableVertexAttribArray(attribs.aPosition); gl.vertexAttribPointer(attribs.aPosition,3,gl.FLOAT,false,20,0);
-      gl.enableVertexAttribArray(attribs.aTexCoord); gl.vertexAttribPointer(attribs.aTexCoord,2,gl.FLOAT,false,20,12);
-      gl.uniformMatrix4fv(uniforms.uModel,false,model);
-      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,tex); gl.uniform1i(uniforms.uTexture,0);
-      gl.drawArrays(gl.TRIANGLES,0,buf.vertexCount);
+      const n = sorted.length;
+      const p25 = sorted[Math.floor(0.25 * (n - 1))];
+      const p75 = sorted[Math.floor(0.75 * (n - 1))];
+      return { fastest, slowest, average, median, stdev, p25, p75 };
     }
 
-    // Render
-    function render(){ const now=performance.now(); if(animT){ let t=(now-t0)/durT; if(t>=1){t=1;animT=false;} playerPos[0]=lerp(startP[0],targetP[0],t); playerPos[2]=lerp(startP[2],targetP[2],t);} if(animR){ let t=(now-r0)/durR; if(t>=1){t=1;animR=false;} playerAng=lerpAngle(startA,targetA,t);} if(bot&&!animT&&!animR){ if(pi<path.length){ const cur={x:Math.floor(playerPos[0]),y:Math.floor(playerPos[2])}, nxt=path[pi]; if(cur.x===nxt.x&&cur.y===nxt.y) pi++; else{ const dx=nxt.x+0.5-playerPos[0], dz=nxt.y+0.5-playerPos[2], ang=Math.round(((Math.atan2(dx,dz)*180/Math.PI)+360)%360/90)*90; if(ang!==playerAng){ animR=true; r0=performance.now(); startA=playerAng; targetA=ang; playerAng=ang;} else if(canMove(playerPos[0]+Math.sin(toRadian(playerAng)),playerPos[2]+Math.cos(toRadian(playerAng)))){ animT=true; t0=now; startP=[...playerPos]; targetP=[playerPos[0]+Math.sin(toRadian(playerAng)),playerPos[1],playerPos[2]+Math.cos(toRadian(playerAng))]; } else computePath(); pi++; } } else computePath(); }
-      gl.viewport(0,0,gl.canvas.width,gl.canvas.height); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
-      gl.useProgram(program);
-      const proj=glMatrix.mat4.create(), fov=toRadian(90), asp=gl.canvas.width/gl.canvas.height;
-      glMatrix.mat4.perspective(proj,fov,asp,0.1,100); gl.uniformMatrix4fv(uniforms.uProjection,false,proj);
-      const view=glMatrix.mat4.create(), eye=[playerPos[0],playerPos[1]+0.5,playerPos[2]], cen=[playerPos[0]+Math.sin(toRadian(playerAng)),playerPos[1]+0.5,playerPos[2]+Math.cos(toRadian(playerAng))];
-      glMatrix.mat4.lookAt(view,eye,cen,[0,1,0]); gl.uniformMatrix4fv(uniforms.uView,false,view);
-      draw(buffers.floor,textures.ground,glMatrix.mat4.create()); draw(buffers.ceiling,textures.roof,glMatrix.mat4.create());
-      draw(buffers.wallBrick,textures.brick,glMatrix.mat4.create()); draw(buffers.wallExit,textures.exit,glMatrix.mat4.create());
-      updateOverlay();
-      const cx=Math.floor(playerPos[0]), cz=Math.floor(playerPos[2]); if(!animT&&!animR&&mazeData.maze[cz].charAt(cx)==='E') restart();
-      requestAnimationFrame(render);
+    // Draw game statistics and instructions
+    function drawStats() {
+      const elapsedTime = Math.floor(getTime() - startTime);
+      const currentTimeDisplay = paused ? lastFrameTime : getTime();
+      const totalGameTime = currentTimeDisplay - startTime;
+      const totalResponses = squaresClicked + squaresExpired + misclicks;
+      const accuracy = totalResponses > 0 ? (squaresClicked / totalResponses * 100) : 0;
+      const cps = (getTime() - startTime) > 0 ? squaresClicked / (getTime() - startTime) : 0;
+
+      ctx.fillStyle = darkMode ? WHITE : BLACK;
+      ctx.font = "16px Arial";
+      let y = 20;
+      const lineHeight = 20;
+      const lines = [];
+
+      let modeLabel = mode.toUpperCase();
+      if (isAprilFools && !afDisabled) modeLabel += " (AF)";
+      lines.push(`Mode: ${modeLabel} (Press N to toggle mode)`);
+      lines.push(`Paused: ${paused} (Press P to toggle pause)`);
+      lines.push(`Dark Mode: ${darkMode ? "ON" : "OFF"} (Press B to toggle dark mode)`);
+      lines.push(`Time Played: ${elapsedTime}s | Clicks/Second: ${cps.toFixed(2)}`);
+      lines.push(`Total Game Time: ${totalGameTime.toFixed(2)}s | Unpaused Time: ${unpausedTime.toFixed(2)}s`);
+      lines.push(`Squares Clicked: ${squaresClicked} | Expired: ${squaresExpired} | Misclicks: ${misclicks} | Total Prompts: ${totalPrompts}`);
+      lines.push(`Accuracy: ${accuracy.toFixed(2)}%`);
+      lines.push(`Current Streak: ${currentStreak} | Longest Streak: ${longestStreak}`);
+
+      const stats = computeReactionStats();
+      if (stats) {
+        lines.push(`Fastest: ${stats.fastest.toFixed(2)}s | Slowest: ${stats.slowest.toFixed(2)}s`);
+        lines.push(`Average: ${stats.average.toFixed(2)}s | Median: ${stats.median.toFixed(2)}s`);
+        lines.push(`Std Dev: ${stats.stdev.toFixed(2)}s | 25th: ${stats.p25.toFixed(2)}s | 75th: ${stats.p75.toFixed(2)}s`);
+      }
+
+      let hints = "Key Hints: N - Toggle Mode, P - Pause, R - Reset, B - Toggle Dark Mode, Esc - Exit, W - Open GitHub Repo";
+      if (afPauseMode) hints = "Hit O-key to continue playing in normal mode";
+      else if (isAprilFools && !afDisabled && followMode && squaresExpired >= 35) {
+        hints = "Press O-key to disable AF/Follow mode";
+      }
+      lines.push(hints);
+
+      lines.forEach(line => {
+        ctx.fillText(line, 10, y);
+        y += lineHeight;
+      });
     }
 
-    // Overlay
-    function drawFull(ctx){ const cs=12, cols=mazeData.maze[0].length, rows=mazeData.maze.length;
-      const w=cols*cs,h=rows*cs, ox=(window.innerWidth/2)-(Math.floor(playerPos[0])*cs+cs/2)+offX, oy=(window.innerHeight/2)-(Math.floor(playerPos[2])*cs+cs/2)+offY;
-      ctx.fillStyle='black'; ctx.fillRect(ox-2,oy-2,w+4,h+4);
-      for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){ const c=mazeData.maze[y][x]; ctx.fillStyle=discovered[y][x]? (c==='#'?'#4d4d4d':c==='E'?'red':c==='B'?'black':'white'):'black'; ctx.fillRect(ox+x*cs,oy+y*cs,cs,cs);} }
-    function drawMini(ctx){ const rs=12,cs=8,mw=rs*cs,mh=rs*cs, mx=window.innerWidth-mw-10, my=10;
-      ctx.fillStyle='black'; ctx.fillRect(mx-2,my-2,mw+4,mh+4);
-      const sx=Math.floor(playerPos[0])-Math.floor(rs/2), sy=Math.floor(playerPos[2])-Math.floor(rs/2);
-      for(let y=0;y<rs;y++)for(let x=0;x<rs;x++){ const yy=sy+y, xx=sx+x; if(yy<0||yy>=mazeData.maze.length||xx<0||xx>=mazeData.maze[0].length) continue; const c=mazeData.maze[yy][xx]; ctx.fillStyle=discovered[yy][xx]? (c==='#'?'#4d4d4d':c==='E'?'red':c==='B'?'black':'white'):'black'; ctx.fillRect(mx+x*cs,my+y*cs,cs,cs);} }
-    function updateOverlay(){ const c=document.getElementById('mazeCanvas'), ctx=c.getContext('2d'); c.width=window.innerWidth; c.height=window.innerHeight; ctx.clearRect(0,0,c.width,c.height);
-      if(showFull) drawFull(ctx); drawMini(ctx);
-      if(showHelp){ ctx.fillStyle='rgba(0,0,0,0.7)'; ctx.fillRect(10,10,300,180);
-        ctx.fillStyle='white'; ctx.font='16px monospace'; const ins=['Controls:','W/Up: forward','S/Down: back','A/Left: turn left','D/Right: turn right','M: toggle full map','H: toggle help','B: toggle bot','1: BFS','2: DFS','3: A*','4: Explore','Drag: pan full map'];
-        ins.forEach((l,i)=>ctx.fillText(l,20,35+i*20)); }
-        ctx.fillStyle='white'; ctx.font='16px monospace'; ctx.fillText('Hint: Press H for help',10,window.innerHeight-20);
+    // Compute distance from a point to a rectangle
+    function distanceToRect(pt, rect) {
+      let dx = 0;
+      if (pt.x < rect.x) dx = rect.x - pt.x;
+      else if (pt.x > rect.x + rect.size) dx = pt.x - (rect.x + rect.size);
+      let dy = 0;
+      if (pt.y < rect.y) dy = rect.y - pt.y;
+      else if (pt.y > rect.y + rect.size) dy = pt.y - (rect.y + rect.size);
+      return Math.sqrt(dx * dx + dy * dy);
     }
 
-    // Init
-    function init(){ const canvas=document.getElementById('glCanvas'); canvas.width=window.innerWidth; canvas.height=window.innerHeight;
-      gl=canvas.getContext('webgl'); if(!gl){ alert('WebGL not supported'); return; }
-      program=initShaderProgram(gl,vsSource,fsSource); attribs={ aPosition:gl.getAttribLocation(program,'aPosition'), aTexCoord:gl.getAttribLocation(program,'aTexCoord') };
-      uniforms={ uProjection:gl.getUniformLocation(program,'uProjection'), uView:gl.getUniformLocation(program,'uView'), uModel:gl.getUniformLocation(program,'uModel'), uTexture:gl.getUniformLocation(program,'uTexture') };
-      textures.ground=loadTexture(gl,'ground.jpg'); textures.roof=loadTexture(gl,'roof.jpg'); textures.brick=loadTexture(gl,'brick.jpg'); textures.exit=loadTexture(gl,'exit.png');
-      mazeData=createMap(mw,mh,maxR,minS,maxS,42); geom=buildGeometry(mazeData.maze); initBuffers();
-      mazeData.rooms&&mazeData.rooms.length&&(playerPos=[mazeData.rooms[0].center[0]+0.5,0.5,mazeData.rooms[0].center[1]+0.5]);
-      for(let y=0;y<mazeData.maze.length;y++){ discovered[y]=[]; for(let x=0;x<mazeData.maze[y].length;x++) discovered[y][x]=true; }
-      gl.clearColor(0.5,0.5,0.5,1); gl.enable(gl.DEPTH_TEST);
-      const overlay=document.getElementById('mazeCanvas'); overlay.addEventListener('mousedown',onMouseDown);
-      overlay.addEventListener('mousemove',onMouseMove); overlay.addEventListener('mouseup',onMouseUp); overlay.addEventListener('mouseleave',onMouseUp);
-      requestAnimationFrame(render);
+    // Main game_loop
+    function gameLoop() {
+      if (!running) return;
+      const currentFrameTime = getTime();
+      const dt = currentFrameTime - lastFrameTime;
+      lastFrameTime = currentFrameTime;
+
+      if (!paused) {
+        unpausedTime += dt;
+        // Spawn/move squares based on mode
+        if (mode === "classic") {
+          if (squares.length === 0) squares.push(createSquare());
+        } else if (mode === "hyper") {
+          if (squares.length < MAX_SQUARES) squares.push(createSquare());
+        } else if (mode === "superEasy") {
+          // Only one square that follows the mouse
+          if (squares.length === 0) {
+            const createdAt = getTime();
+            const x = mousePos.x - SQUARE_SIZE/2;
+            const y = mousePos.y - SQUARE_SIZE/2;
+            totalPrompts++;
+            squares.push({ x, y, size: SQUARE_SIZE, createdAt });
+          } else {
+            squares[0].x = mousePos.x - SQUARE_SIZE/2;
+            squares[0].y = mousePos.y - SQUARE_SIZE/2;
+          }
+        }
+        if (mode !== "superEasy") removeExpiredSquares();
+      }
+
+      // April Fools follow mode activation
+      if (isAprilFools && !afDisabled && !followMode && currentStreak >= followModeThreshold) {
+        followMode = true;
+        console.log("Follow mode activated at streak: " + currentStreak);
+      }
+
+      // AF mode proximity expiration
+      if (isAprilFools && !afDisabled && followMode && mousePos) {
+        for (let i = squares.length - 1; i >= 0; i--) {
+          const sq = squares[i];
+          if (distanceToRect(mousePos, sq) <= 65) {
+            squares.splice(i, 1);
+            squaresExpired++;
+            currentStreak = 0;
+          }
+        }
+      }
+
+      // Clear and redraw
+      ctx.fillStyle = darkMode ? BLACK : WHITE;
+      ctx.fillRect(0, 0, WIDTH, HEIGHT);
+      drawSquares();
+      drawStats();
+
+      if (paused) {
+        ctx.fillStyle = darkMode ? WHITE : BLACK;
+        ctx.font = "30px Arial";
+        const text = afPauseMode ? "Hit O-key to continue playing in normal mode" : "Paused";
+        const textWidth = ctx.measureText(text).width;
+        ctx.fillText(text, (WIDTH - textWidth)/2, HEIGHT/2);
+      }
+      requestAnimationFrame(gameLoop);
     }
-    window.onload=init;
+
+    // Mouse click event
+    canvas.addEventListener("mousedown", function(event) {
+      if (!paused) {
+        if (mode === "superEasy") {
+          // Count this as the next prompt
+          totalPrompts++;
+          // Always count as hit
+          const sq = squares[0];
+          squaresClicked++;
+          const reaction = getTime() - sq.createdAt;
+          reactionTimes.push(reaction);
+          currentStreak++;
+          if (currentStreak > longestStreak) longestStreak = currentStreak;
+          // Reset for next click
+          sq.createdAt = getTime();
+          return;
+        }
+        const rect = canvas.getBoundingClientRect();
+        const pos = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+        const hit = handleSquareClick(pos);
+        if (!hit) {
+          misclicks++;
+          currentStreak = 0;
+        }
+      }
+    });
+
+    // Update mouse position
+    canvas.addEventListener("mousemove", function(event) {
+      const rect = canvas.getBoundingClientRect();
+      mousePos.x = event.clientX - rect.left;
+      mousePos.y = event.clientY - rect.top;
+    });
+
+    // Keyboard events
+    document.addEventListener("keydown", function(event) {
+      if (event.key === "n" || event.key === "N") {
+        // Cycle modes
+        if (mode === "classic") mode = "hyper";
+        else if (mode === "hyper") mode = "superEasy";
+        else mode = "classic";
+        resetGame();
+        console.log("Mode toggled to: " + mode);
+      } else if (event.key === "p" || event.key === "P") {
+        paused = !paused;
+        if (!paused) lastFrameTime = getTime();
+      } else if (event.key === "r" || event.key === "R") {
+        resetGame();
+      } else if (event.key === "b" || event.key === "B") {
+        darkMode = !darkMode;
+      } else if (event.key === "o" || event.key === "O") {
+        if (afPauseMode) {
+          afDisabled = true;
+          afPauseMode = false;
+          paused = false;
+          resetGame();
+          mode = "classic";
+          console.log("AF/Follow mode permanently disabled. Restarting in normal mode.");
+        } else if (isAprilFools && !afDisabled && followMode && squaresExpired >= 35) {
+          followMode = false;
+          afPauseMode = true;
+          paused = true;
+          console.log("AF/Follow mode disabled. Game paused.");
+        }
+      } else if (event.key === "w" || event.key === "W") {
+        window.open("https://github.com/pemmyz/js_reactiongame", "_blank");
+      } else if (event.key === "Escape") {
+        running = false;
+      }
+    });
+
+    // Start the game loop
+    requestAnimationFrame(gameLoop);
   </script>
 </body>
 </html>
