@@ -6,6 +6,12 @@ A fast-paced browser-based reaction time game built using HTML5 Canvas and vanil
 This game is a reimagination of a project I did in a JavaScript programming course during my IT bachelor studies.
 
 ---
+## Screenshots
+
+### Game
+![Game 1](screenshots/game_1.png)
+
+---
 
 ## Play it now: https://pemmyz.github.io/js_reactiongame/js_reactiongame.html
 
