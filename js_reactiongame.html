@@ -3,27 +3,37 @@
 <head>
   <meta charset="UTF-8">
   <title>Browser Reaction Game</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <style>
-    body {
+    body, html {
       margin: 0;
       overflow: hidden;
-      background: #333;
+      background: #000; /* Black background for fullscreen letterboxing */
+      width: 100vw;
+      height: 100vh;
     }
     #container {
       display: flex;
       align-items: center;
       justify-content: center;
-      height: 100vh;
+      height: 100%;
+      width: 100%;
+      box-sizing: border-box;
+      background: #333;
     }
     .side-buttons {
       display: flex;
       flex-direction: column;
       gap: 10px;
       margin: 0 10px;
+      flex-shrink: 0; 
+      z-index: 2;
     }
     canvas {
-      border: 2px solid #555;
+      /* The canvas will be sized by JS, but this helps it fit its container */
+      display: block; /* Removes bottom margin */
       background: #000;
+      box-shadow: 0 0 20px rgba(0,0,0,0.5);
     }
     button {
       padding: 8px 12px;
@@ -38,9 +48,39 @@
     button:hover {
       background: #777;
     }
+
+    /* Top Left Mobile Button */
+    #mobileBtn {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      z-index: 9999;
+      background: #007bff;
+      opacity: 0.8;
+    }
+    #mobileBtn:hover {
+      opacity: 1;
+      background: #0056b3;
+    }
+
+    /* --- FULLSCREEN / MOBILE MODE CSS --- */
+    /* When the body or html is in fullscreen mode: */
+    :fullscreen #container, ::-webkit-full-screen #container {
+        background: #000; /* Black background for letterboxing */
+    }
+
+    /* Hide side buttons in fullscreen to give canvas maximum space */
+    :fullscreen .side-buttons, ::-webkit-full-screen .side-buttons {
+        display: none;
+    }
+
+    /* JS now handles canvas scaling, so specific fullscreen canvas CSS is not needed */
   </style>
 </head>
 <body>
+  
+  <button id="mobileBtn" onclick="goFull()">Switch to mobile</button>
+
   <div id="container">
     <div class="side-buttons">
       <button id="btnMode">Mode (N)</button>
@@ -50,7 +90,7 @@
       <button id="btnExit">Exit (Esc)</button>
       <button id="btnGitHub">GitHub (W)</button>
     </div>
-    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <canvas id="gameCanvas"></canvas> <!-- REMOVED fixed width/height attributes -->
     <div class="side-buttons">
       <button id="btnModeR">Mode (N)</button>
       <button id="btnPauseR">Pause (P)</button>
@@ -60,10 +100,23 @@
       <button id="btnGitHubR">GitHub (W)</button>
     </div>
   </div>
+
   <script>
+    // --- Fullscreen Scripts ---
+    function goFull() {
+      const el = document.documentElement;
+      if (el.requestFullscreen) {
+        el.requestFullscreen();
+      } else if (el.webkitRequestFullscreen) { // older Android/Safari fallback
+        el.webkitRequestFullscreen();
+      }
+    }
+
+
+
     // --- Constants ---
-    const WIDTH = 800;
-    const HEIGHT = 600;
+    const WIDTH = 800;  // Native game width
+    const HEIGHT = 600; // Native game height
     const SQUARE_SIZE = 50;
     const MAX_SQUARES = 10;
     const TIME_LIMIT = 5;
@@ -73,45 +126,29 @@
     const BLACK = "#000000";
     const RED = "#FF0000";
 
+    // --- Canvas and Scaling Setup ---
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const container = document.getElementById("container");
+    
+    // Global transform variable
+    let scale = 1;
+
     // --- Date Check ---
     const today = new Date();
     const isAprilFools = today.getMonth() === 3 && today.getDate() === 1;
 
     // --- State Variables ---
-    let mode = "classic";
-    let paused = false;
-    let running = true;
-    let darkMode = true;
-
-    let squares = [];
-    let squaresClicked = 0;
-    let squaresExpired = 0;
-    let misclicks = 0;
-    let totalPrompts = 0;
-
-    let reactionTimes = [];
-    let currentStreak = 0;
-    let longestStreak = 0;
-
-    let startTime = getTime();
-    let unpausedTime = 0;
-    let lastFrameTime = getTime();
-
-    let followMode = false;
-    let followModeThreshold = isAprilFools ? (Math.floor(Math.random() * 16) + 10) : null;
-    let afPauseMode = false;
-    let afDisabled = false;
-
+    let mode = "classic", paused = false, running = true, darkMode = true;
+    let squares = [], squaresClicked = 0, squaresExpired = 0, misclicks = 0, totalPrompts = 0;
+    let reactionTimes = [], currentStreak = 0, longestStreak = 0;
+    let startTime = getTime(), unpausedTime = 0, lastFrameTime = getTime();
+    let followMode = false, followModeThreshold = isAprilFools ? (Math.floor(Math.random() * 16) + 10) : null;
+    let afPauseMode = false, afDisabled = false;
     let mousePos = { x: 0, y: 0 };
 
-    // --- Canvas Setup ---
-    const canvas = document.getElementById("gameCanvas");
-    const ctx = canvas.getContext("2d");
-
     // --- Helpers ---
-    function getTime() {
-      return performance.now() / 1000;
-    }
+    function getTime() { return performance.now() / 1000; }
 
     function resetGame() {
       squares = [];
@@ -122,14 +159,11 @@
       reactionTimes = [];
       currentStreak = 0;
       longestStreak = 0;
-
       startTime = getTime();
       unpausedTime = 0;
       lastFrameTime = getTime();
-
       paused = false;
       afPauseMode = false;
-
       if (!afDisabled && isAprilFools) {
         followMode = false;
         followModeThreshold = Math.floor(Math.random() * 16) + 10;
@@ -219,7 +253,11 @@
         lines.push(`Std Dev: ${stats.stdev.toFixed(2)}s | 25th: ${stats.p25.toFixed(2)}s | 75th: ${stats.p75.toFixed(2)}s`);
       }
 
-      lines.push("Key Hints: N - Toggle Mode, P - Pause, R - Reset, B - Toggle Dark Mode, Esc - Exit, W - Open GitHub Repo");
+      if (!document.fullscreenElement) {
+        lines.push("Key Hints: N - Mode, P - Pause, R - Reset, B - Dark Mode, Esc - Exit, W - GitHub");
+      } else {
+        lines.push("Tap 'Switch to Mobile' again or press ESC to exit fullscreen");
+      }
 
       lines.forEach(line => {
         ctx.fillText(line, 10, y);
@@ -237,6 +275,25 @@
     // --- Main Loop ---
     function gameLoop() {
       if (!running) return;
+
+      // --- 1. RESIZE & CALCULATE SCALE --- (NEW LOGIC)
+      const containerWidth = container.clientWidth;
+      const containerHeight = container.clientHeight;
+      const scaleX = containerWidth / WIDTH;
+      const scaleY = containerHeight / HEIGHT;
+      scale = Math.min(scaleX, scaleY);
+
+      const newCanvasWidth = WIDTH * scale;
+      const newCanvasHeight = HEIGHT * scale;
+      canvas.style.width = `${newCanvasWidth}px`;
+      canvas.style.height = `${newCanvasHeight}px`;
+
+      canvas.width = newCanvasWidth;
+      canvas.height = newCanvasHeight;
+      
+      ctx.setTransform(scale, 0, 0, scale, 0, 0);
+
+      // --- 2. GAME LOGIC ---
       const now = getTime();
       const dt = now - lastFrameTime;
       lastFrameTime = now;
@@ -247,8 +304,7 @@
           if (squares.length === 0) squares.push(createSquare());
         } else if (mode === "hyper") {
           if (squares.length < MAX_SQUARES) squares.push(createSquare());
-        } else {
-          // superEasy
+        } else { // superEasy
           if (squares.length === 0) {
             totalPrompts++;
             squares.push({ x: mousePos.x - SQUARE_SIZE/2, y: mousePos.y - SQUARE_SIZE/2, size: SQUARE_SIZE, createdAt: now });
@@ -274,8 +330,9 @@
         });
       }
 
+      // --- 3. DRAWING ---
       ctx.fillStyle = darkMode ? BLACK : WHITE;
-      ctx.fillRect(0, 0, WIDTH, HEIGHT);
+      ctx.fillRect(0, 0, WIDTH, HEIGHT); // Clears the logical 800x600 area
       drawSquares();
       drawStats();
 
@@ -291,39 +348,58 @@
     }
 
     // --- Event Handling ---
-    canvas.addEventListener("mousedown", event => {
-      if (paused) return;
-      const rect = canvas.getBoundingClientRect();
-      const pos = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    function handleInteraction(clientX, clientY) {
+        if (paused) return;
+        const rect = canvas.getBoundingClientRect();
+        
+        // Convert screen coordinates to native 800x600 game coordinates
+        const pos = { 
+            x: (clientX - rect.left) / scale, 
+            y: (clientY - rect.top) / scale 
+        };
 
-      if (mode === "superEasy") {
-        squaresClicked++;
-        reactionTimes.push(getTime() - squares[0].createdAt);
-        currentStreak++;
-        if (currentStreak > longestStreak) longestStreak = currentStreak;
-        squares[0].createdAt = getTime();
-        return;
-      }
+        if (mode === "superEasy" && squares.length > 0) {
+            squaresClicked++;
+            reactionTimes.push(getTime() - squares[0].createdAt);
+            currentStreak++;
+            if (currentStreak > longestStreak) longestStreak = currentStreak;
+            squares[0].createdAt = getTime();
+            return;
+        }
 
-      const hitIndex = squares.findIndex(sq =>
-        pos.x >= sq.x && pos.x <= sq.x + sq.size &&
-        pos.y >= sq.y && pos.y <= sq.y + sq.size);
-      if (hitIndex !== -1) {
-        squaresClicked++;
-        reactionTimes.push(getTime() - squares[hitIndex].createdAt);
-        squares.splice(hitIndex, 1);
-        currentStreak++;
-        if (currentStreak > longestStreak) longestStreak = currentStreak;
-      } else {
-        misclicks++;
-        currentStreak = 0;
-      }
+        const hitIndex = squares.findIndex(sq =>
+            pos.x >= sq.x && pos.x <= sq.x + sq.size &&
+            pos.y >= sq.y && pos.y <= sq.y + sq.size);
+            
+        if (hitIndex !== -1) {
+            squaresClicked++;
+            reactionTimes.push(getTime() - squares[hitIndex].createdAt);
+            squares.splice(hitIndex, 1);
+            currentStreak++;
+            if (currentStreak > longestStreak) longestStreak = currentStreak;
+        } else {
+            misclicks++;
+            currentStreak = 0;
+        }
+    }
+
+    canvas.addEventListener("mousedown", e => {
+        e.preventDefault();
+        handleInteraction(e.clientX, e.clientY);
     });
+
+    canvas.addEventListener("touchstart", e => {
+        e.preventDefault();
+        const touch = e.touches[0];
+        handleInteraction(touch.clientX, touch.clientY);
+    }, { passive: false });
+
 
     canvas.addEventListener("mousemove", event => {
       const rect = canvas.getBoundingClientRect();
-      mousePos.x = event.clientX - rect.left;
-      mousePos.y = event.clientY - rect.top;
+      // Convert screen coordinates to native 800x600 game coordinates
+      mousePos.x = (event.clientX - rect.left) / scale;
+      mousePos.y = (event.clientY - rect.top) / scale;
     });
 
     function togglePause() {
@@ -379,4 +455,3 @@
   </script>
 </body>
 </html>
-
